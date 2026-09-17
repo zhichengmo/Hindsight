@@ -1596,7 +1596,7 @@ Anthropic has distinct image and document blocks, OpenAI has `image_url` and fil
 parts — so carrying your own distinction through means the conversion never has to
 guess from the media type alone.
 
-This is distinct from [`POST /files/retain`](#file-conversion), which converts a
+This is distinct from [`POST /files/retain`](#file-processing), which converts a
 whole file to markdown as its **own** document — still the right tool for scanned
 PDFs and office documents when you want them parsed rather than looked at, but it
 separates the content from the prose around it.
@@ -1655,7 +1655,7 @@ Two things will refuse the retain outright, both with `422`, rather than droppin
 attachments silently:
 
 - The retain LLM is not vision-capable, or Hindsight cannot tell that it is. See
-  [`HINDSIGHT_API_LLM_VISION`](#llm-configuration).
+  [`HINDSIGHT_API_LLM_VISION`](#llm-provider).
 - `HINDSIGHT_API_RETAIN_BATCH_ENABLED=true`. The batch path builds provider
   request bodies directly and never sees the interleaved content.
 

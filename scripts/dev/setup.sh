@@ -337,8 +337,21 @@ Next steps:
   • Start everything:        ./scripts/dev/start.sh
   • API only:                ./scripts/dev/start-api.sh
   • Run API tests:           cd hindsight-api-slim && uv run pytest tests/
+EOF
+
+if [ "$SKIP_MODELS" = true ]; then
+    cat <<'EOF'
+
+Local embedding/reranker model pre-download was skipped. With the default
+local providers, the API may download these models on first use. Run setup
+without --skip-models to cache them in advance. The tokenizer needs no cache:
+its vocabularies ship in the wheel.
+EOF
+else
+    cat <<'EOF'
 
 The local embedding/reranker models are cached, so the API can run fully
-offline (default local providers). Re-run with --skip-models to skip that
-step. The tokenizer needs no cache: its vocabularies ship in the wheel.
+offline with the default local providers. The tokenizer needs no cache: its
+vocabularies ship in the wheel.
 EOF
+fi

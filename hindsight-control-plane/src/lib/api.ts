@@ -463,6 +463,40 @@ export class ControlPlaneClient {
   /**
    * List one page of banks, most recently written first.
    */
+  /**
+   * Get hierarchical classification tree for banks
+   */
+  async getBankCategoryTree(params?: { space_code?: string; environment?: string; keyword?: string }) {
+    const search = new URLSearchParams();
+    if (params?.space_code) search.set("space_code", params.space_code);
+    if (params?.environment) search.set("environment", params.environment);
+    if (params?.keyword) search.set("keyword", params.keyword);
+    const query = search.toString();
+    return this.fetchApi<{ code: number; message: string; data: any }>(
+      `/api/bank-categories/tree${query ? `?${query}` : ""}`,
+      { cache: "no-store" as RequestCache }
+    );
+  }
+
+  /**
+   * Save or update bank classification
+   */
+  async saveBankClassification(payload: {
+    bank_id: string;
+    space_code?: string;
+    environment?: string;
+    subject_type?: string;
+    subject_id?: string;
+    display_name: string;
+    tags?: string;
+    sort_order?: number;
+  }) {
+    return this.fetchApi<{ code: number; message: string; data: any }>("/api/bank-categories/save", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
+
   async listBanks(params?: { q?: string; limit?: number; offset?: number }) {
     const search = new URLSearchParams();
     if (params?.q) search.set("q", params.q);
