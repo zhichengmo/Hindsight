@@ -194,8 +194,10 @@ async def get_bank_profile_if_exists_on_conn(conn: "DatabaseConnection", bank_id
     """
     row = await conn.fetchrow(
         f"""
-        SELECT name, disposition, mission
-        FROM {fq_table("banks")} WHERE bank_id = $1
+        SELECT COALESCE(c.display_name, b.name) AS name, b.disposition, b.mission
+        FROM {fq_table("banks")} b
+        LEFT JOIN {fq_table("bank_classifications")} c ON c.bank_id = b.bank_id
+        WHERE b.bank_id = $1
         """,
         bank_id,
     )
@@ -570,6 +572,7 @@ async def list_banks(pool, *, search_query: str | None = None) -> list:
     banks_table = fq_table("banks")
     docs_table = fq_table("documents")
     mu_table = fq_table("memory_units")
+    class_table = fq_table("bank_classifications")
 
     # Spelled out as UPPER(...) LIKE UPPER(...) rather than ILIKE: the Oracle
     # rewriter only recognizes ILIKE on an unqualified column, and these are
@@ -577,20 +580,23 @@ async def list_banks(pool, *, search_query: str | None = None) -> list:
     where_clause = ""
     params: list[str] = []
     if search_query:
-        where_clause = "WHERE (UPPER(b.bank_id) LIKE UPPER($1) OR UPPER(COALESCE(b.name, '')) LIKE UPPER($2))"
+        where_clause = "WHERE (UPPER(b.bank_id) LIKE UPPER($1) OR UPPER(COALESCE(c.display_name, b.name, '')) LIKE UPPER($2))"
         params = [f"%{search_query}%", f"%{search_query}%"]
 
     async with acquire_with_retry(pool) as conn:
         rows = await conn.fetch(
             f"""
             SELECT
-                b.bank_id, b.name, b.disposition, b.mission,
+                b.bank_id,
+                COALESCE(c.display_name, b.name) AS name,
+                b.disposition, b.mission,
                 b.created_at, b.updated_at,
                 COALESCE(m.fact_count, 0) AS fact_count,
                 d.last_document_at,
                 d.last_document_write_at,
                 m.last_fact_at
             FROM {banks_table} b
+            LEFT JOIN {class_table} c ON c.bank_id = b.bank_id
             LEFT JOIN (
                 SELECT bank_id,
                        MAX(created_at) AS last_document_at,

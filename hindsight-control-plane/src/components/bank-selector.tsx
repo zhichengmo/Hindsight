@@ -58,6 +58,10 @@ import {
   Copy,
   Paperclip,
   ChevronUp,
+  SlidersHorizontal,
+  Layers,
+  FolderTree,
+  Tag,
 } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
@@ -133,6 +137,49 @@ function BankSelectorInner() {
   const [logoSpinning, setLogoSpinning] = React.useState(false);
   const [createDialogOpen, setCreateDialogOpen] = React.useState(false);
   const [newBankId, setNewBankId] = React.useState("");
+
+  // Classification & Category Tree States
+  const [viewMode, setViewMode] = React.useState<"classified" | "flat">("classified");
+  const [categoryTree, setCategoryTree] = React.useState<any>(null);
+  const [activeSpaceCode, setActiveSpaceCode] = React.useState<string>("all");
+  const [collapsedEnvs, setCollapsedEnvs] = React.useState<Record<string, boolean>>({});
+
+  // Classification Edit Dialog State
+  const [editClassDialogOpen, setEditClassDialogOpen] = React.useState(false);
+  const [editingClassification, setEditingClassification] = React.useState<{
+    bank_id: string;
+    space_code: string;
+    environment: string;
+    subject_type: string;
+    subject_id: string;
+    display_name: string;
+    tags: string;
+  }>({
+    bank_id: "",
+    space_code: "pet_health",
+    environment: "test",
+    subject_type: "pet_profile",
+    subject_id: "",
+    display_name: "",
+    tags: "",
+  });
+  const [isSavingClassification, setIsSavingClassification] = React.useState(false);
+
+  // Load category tree on mount and when dialog closes or bank changes
+  const loadCategoryTree = React.useCallback(async () => {
+    try {
+      const res = await client.getBankCategoryTree();
+      if (res && res.data) {
+        setCategoryTree(res.data);
+      }
+    } catch (e) {
+      console.warn("Failed to load category tree:", e);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    loadCategoryTree();
+  }, [loadCategoryTree]);
   const [isCreating, setIsCreating] = React.useState(false);
   const [createError, setCreateError] = React.useState<string | null>(null);
   const [useTemplate, setUseTemplate] = React.useState(false);
@@ -279,6 +326,55 @@ function BankSelectorInner() {
     observer.observe(sentinelEl);
     return () => observer.disconnect();
   }, [hasMoreBanks, listEl, sentinelEl, loadMoreBanks, bankInfos.length]);
+
+  const handleOpenEditClassification = (bank: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    // Pre-fill classification data from tree if available, else derive defaults
+    let match: any = null;
+    if (categoryTree?.spaces) {
+      for (const sp of categoryTree.spaces) {
+        for (const env of sp.environments) {
+          const found = env.banks?.find((b: any) => b.bank_id === bank.bank_id);
+          if (found) {
+            match = { ...found, space_code: sp.space_code, environment: env.env_code };
+            break;
+          }
+        }
+        if (match) break;
+      }
+    }
+    setEditingClassification({
+      bank_id: bank.bank_id,
+      space_code: match?.space_code || "pet_health",
+      environment: match?.environment || "test",
+      subject_type: match?.subject_type || "pet_profile",
+      subject_id: match?.subject_id || "",
+      display_name: match?.display_name || bank.name || bank.bank_id,
+      tags: match?.tags || "",
+    });
+    setEditClassDialogOpen(true);
+  };
+
+  const handleSaveClassification = async () => {
+    if (!editingClassification.bank_id) return;
+    setIsSavingClassification(true);
+    try {
+      await client.saveBankClassification(editingClassification);
+      toast.success("分类与别名已更新");
+      setEditClassDialogOpen(false);
+      await loadCategoryTree();
+      await loadBanks();
+    } catch (err: any) {
+      toast.error(err?.message || "更新分类失败");
+    } finally {
+      setIsSavingClassification(false);
+    }
+  };
+
+  const toggleEnvCollapse = (key: string) => {
+    setCollapsedEnvs((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
   const handleCreateBank = async () => {
     if (!newBankId.trim()) return;
@@ -663,16 +759,80 @@ function BankSelectorInner() {
             {/* shouldFilter={false}: matching is done by the server so search reaches
                 banks that haven't been paged in yet. */}
             <Command shouldFilter={false}>
-              <CommandInput
-                placeholder={tNavBank("search")}
-                value={searchDraft}
-                onValueChange={setSearchDraft}
-              />
+              <div className="flex items-center border-b px-2 py-1.5 gap-1.5 bg-muted/20">
+                <CommandInput
+                  placeholder={tNavBank("search")}
+                  value={searchDraft}
+                  onValueChange={setSearchDraft}
+                  className="flex-1 border-none focus:ring-0 h-8 text-xs"
+                />
+                <div className="flex items-center gap-1 shrink-0 bg-muted/80 rounded p-0.5 border text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("classified")}
+                    className={cn(
+                      "px-2 py-0.5 rounded flex items-center gap-1 transition-colors",
+                      viewMode === "classified"
+                        ? "bg-background font-semibold text-primary shadow-xs"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                    title="层级分类视图"
+                  >
+                    <FolderTree className="h-3 w-3" />
+                    <span>分类</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("flat")}
+                    className={cn(
+                      "px-2 py-0.5 rounded flex items-center gap-1 transition-colors",
+                      viewMode === "flat"
+                        ? "bg-background font-semibold text-primary shadow-xs"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                    title="平铺列表视图"
+                  >
+                    <Layers className="h-3 w-3" />
+                    <span>平铺</span>
+                  </button>
+                </div>
+              </div>
+
+              {viewMode === "classified" && categoryTree?.spaces && categoryTree.spaces.length > 0 && (
+                <div className="flex items-center gap-1 px-2.5 py-1.5 border-b bg-muted/10 overflow-x-auto text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setActiveSpaceCode("all")}
+                    className={cn(
+                      "px-2 py-0.5 rounded-full text-[11px] whitespace-nowrap transition-colors",
+                      activeSpaceCode === "all"
+                        ? "bg-primary text-primary-foreground font-medium"
+                        : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    )}
+                  >
+                    全部空间
+                  </button>
+                  {categoryTree.spaces.map((sp: any) => (
+                    <button
+                      key={sp.space_code}
+                      type="button"
+                      onClick={() => setActiveSpaceCode(sp.space_code)}
+                      className={cn(
+                        "px-2 py-0.5 rounded-full text-[11px] whitespace-nowrap transition-colors",
+                        activeSpaceCode === sp.space_code
+                          ? "bg-primary text-primary-foreground font-medium"
+                          : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                      )}
+                    >
+                      {sp.space_name}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <CommandList
                 ref={setListEl}
-                // cmdk keeps --cmdk-list-height in sync with the rendered rows, so the
-                // popover eases down to the filtered set instead of snapping shut.
-                className="h-[min(300px,var(--cmdk-list-height,300px))] transition-[height] duration-200 ease-out motion-reduce:transition-none"
+                className="h-[min(340px,var(--cmdk-list-height,340px))] transition-[height] duration-200 ease-out motion-reduce:transition-none"
               >
                 <CommandEmpty>
                   {banksLoading ? (
@@ -686,108 +846,325 @@ function BankSelectorInner() {
                     tNavBank("empty")
                   )}
                 </CommandEmpty>
-                {/* The previous results stay put and dim while a search is in flight —
-                    blanking the list first makes every keystroke flash. */}
-                <CommandGroup
-                  className={cn(
-                    "transition-opacity duration-150 motion-reduce:transition-none",
-                    banksLoading && bankInfos.length > 0 && "opacity-40"
-                  )}
-                >
-                  {orderedBanks.map((bank, index) => {
-                    const barPct = (bank.fact_count / maxFactCount) * 100;
-                    const isSelected = currentBank === bank.bank_id;
-                    // Last write, not last ingestion: appends to an existing document
-                    // bump last_write_at only.
-                    const lastWriteAt = bank.last_write_at || bank.last_document_at;
-                    return (
-                      <CommandItem
-                        key={bank.bank_id}
-                        value={bank.bank_id}
-                        onSelect={(value) => {
-                          setCurrentBank(value);
-                          setOpen(false);
-                          const view = searchParams.get("view") || "data";
-                          const subTab = searchParams.get("subTab");
-                          const queryString = subTab
-                            ? `?view=${view}&subTab=${subTab}`
-                            : `?view=${view}`;
-                          router.push(bankRoute(value, queryString));
-                        }}
-                        // Only rows that actually mount animate: React keeps the pages
-                        // already on screen, so appending page 2 flows in without
-                        // replaying page 1. The stagger restarts per page and is capped
-                        // so the tail of a 50-row page doesn't crawl in.
-                        className={cn(
-                          "relative overflow-hidden py-2.5 mb-0.5 group animate-list-row-enter",
-                          // Not bg-accent: cmdk paints the keyboard-active row with
-                          // data-[selected=true]:bg-accent, so reusing it here would
-                          // make two rows look active at once while arrowing down.
-                          isSelected && "ring-1 ring-inset ring-primary/50"
-                        )}
-                        style={{
-                          animationDelay: `${Math.min(index % BANKS_PAGE_SIZE, 10) * 18}ms`,
-                        }}
-                      >
-                        {/* Background bar — proportional to memory count */}
-                        <div
-                          className="absolute inset-y-0 left-0 bg-primary/15 dark:bg-primary/20 rounded-[inherit] transition-all"
-                          style={{ width: `${barPct}%` }}
-                        />
-                        <div className="relative flex items-center w-full gap-2">
-                          <Check
-                            className={cn(
-                              "h-4 w-4 shrink-0",
-                              isSelected ? "opacity-100 text-primary" : "opacity-0"
-                            )}
-                          />
-                          <span
-                            className={cn(
-                              "truncate flex-1",
-                              isSelected ? "font-semibold" : "font-medium"
-                            )}
-                            title={bank.name || bank.bank_id}
-                          >
-                            {bank.name || bank.bank_id}
-                          </span>
-                          <button
-                            type="button"
-                            aria-label={tNavBank("copyName")}
-                            title={tNavBank("copyName")}
-                            className="inline-flex h-6 w-6 items-center justify-center rounded hover:bg-accent-foreground/10 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity shrink-0"
-                            onMouseDown={(e) => {
-                              // Stop cmdk from intercepting before onClick fires.
-                              e.stopPropagation();
-                              e.preventDefault();
-                            }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigator.clipboard.writeText(bank.bank_id).then(
-                                () => toast.success(tNavBank("copied")),
-                                () => toast.error(tNavBank("copied"))
-                              );
-                            }}
-                          >
-                            <Copy className="h-3.5 w-3.5" />
-                          </button>
-                          <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground/70">
-                            {bank.fact_count > 0 ? (
-                              <>
-                                {formatCompact(bank.fact_count)}
-                                <span className="ml-1.5 text-muted-foreground/40">
-                                  {lastWriteAt ? formatTimeAgo(lastWriteAt) : ""}
-                                </span>
-                              </>
-                            ) : (
-                              <span className="italic text-muted-foreground/40">empty</span>
-                            )}
+
+                {viewMode === "classified" && categoryTree ? (
+                  <div className="py-1">
+                    {categoryTree.spaces
+                      ?.filter((sp: any) => activeSpaceCode === "all" || sp.space_code === activeSpaceCode)
+                      .map((sp: any) => (
+                        <div key={sp.space_code} className="mb-2">
+                          <div className="px-3 py-1 text-[11px] font-bold text-muted-foreground/80 flex items-center justify-between">
+                            <span>{sp.space_name}</span>
+                            <span className="text-[10px] font-normal text-muted-foreground/50">{sp.space_code}</span>
+                          </div>
+
+                          {sp.environments?.map((env: any) => {
+                            const envKey = `${sp.space_code}:${env.env_code}`;
+                            const isCollapsed = !!collapsedEnvs[envKey];
+                            return (
+                              <div key={envKey} className="mt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleEnvCollapse(envKey)}
+                                  className="w-full px-3 py-1 text-[11px] font-medium flex items-center justify-between hover:bg-muted/50 rounded transition-colors text-foreground/80"
+                                >
+                                  <div className="flex items-center gap-1.5">
+                                    {isCollapsed ? (
+                                      <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                                    ) : (
+                                      <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                                    )}
+                                    <span className={cn(
+                                      "inline-block w-1.5 h-1.5 rounded-full",
+                                      env.env_code === "prod" ? "bg-red-500" : env.env_code === "test" ? "bg-amber-500" : "bg-blue-500"
+                                    )} />
+                                    <span>{env.env_name}</span>
+                                  </div>
+                                  <span className="text-[10px] text-muted-foreground/60 tabular-nums">
+                                    {env.bank_count} 个档案
+                                  </span>
+                                </button>
+
+                                {!isCollapsed && (
+                                  <div className="pl-2 pr-1 space-y-0.5 mt-0.5">
+                                    {env.banks?.map((b: any, index: number) => {
+                                      const isSelected = currentBank === b.bank_id;
+                                      const bankDetail = bankInfos.find((x) => x.bank_id === b.bank_id);
+                                      const factCount = b.fact_count ?? bankDetail?.fact_count ?? 0;
+                                      const barPct = maxFactCount > 0 ? (factCount / maxFactCount) * 100 : 0;
+                                      return (
+                                        <CommandItem
+                                          key={b.bank_id}
+                                          value={`${b.display_name} ${b.bank_id} ${b.subject_id} ${b.tags}`}
+                                          onSelect={() => {
+                                            setCurrentBank(b.bank_id);
+                                            setOpen(false);
+                                            const view = searchParams.get("view") || "data";
+                                            const subTab = searchParams.get("subTab");
+                                            const queryString = subTab
+                                              ? `?view=${view}&subTab=${subTab}`
+                                              : `?view=${view}`;
+                                            router.push(bankRoute(b.bank_id, queryString));
+                                          }}
+                                          className={cn(
+                                            "relative overflow-hidden py-2 mb-0.5 group rounded cursor-pointer",
+                                            isSelected && "ring-1 ring-inset ring-primary/50"
+                                          )}
+                                        >
+                                          <div
+                                            className="absolute inset-y-0 left-0 bg-primary/15 dark:bg-primary/20 rounded-[inherit] transition-all"
+                                            style={{ width: `${barPct}%` }}
+                                          />
+                                          <div className="relative flex items-center w-full gap-1.5 text-xs">
+                                            <Check
+                                              className={cn(
+                                                "h-3.5 w-3.5 shrink-0",
+                                                isSelected ? "opacity-100 text-primary" : "opacity-0"
+                                              )}
+                                            />
+                                            <span
+                                              className={cn(
+                                                "truncate flex-1",
+                                                isSelected ? "font-semibold text-foreground" : "font-medium text-foreground/90"
+                                              )}
+                                              title={`${b.display_name} (${b.bank_id})`}
+                                            >
+                                              {b.display_name}
+                                            </span>
+                                            {b.tags && (
+                                              <span className="hidden group-hover:inline-block px-1 py-0.2 bg-muted/60 text-[10px] text-muted-foreground rounded">
+                                                {b.tags.split(",")[0]}
+                                              </span>
+                                            )}
+                                            <button
+                                              type="button"
+                                              title="修改分类与属性"
+                                              className="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-accent-foreground/10 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity shrink-0"
+                                              onClick={(e) => handleOpenEditClassification(b, e)}
+                                            >
+                                              <SlidersHorizontal className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              aria-label={tNavBank("copyName")}
+                                              title={tNavBank("copyName")}
+                                              className="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-accent-foreground/10 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity shrink-0"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                navigator.clipboard.writeText(b.bank_id).then(
+                                                  () => toast.success(tNavBank("copied")),
+                                                  () => toast.error(tNavBank("copied"))
+                                                );
+                                              }}
+                                            >
+                                              <Copy className="h-3 w-3 text-muted-foreground" />
+                                            </button>
+                                            <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground/70">
+                                              {factCount > 0 ? (
+                                                <>{formatCompact(factCount)}</>
+                                              ) : (
+                                                <span className="italic text-muted-foreground/40">empty</span>
+                                              )}
+                                            </span>
+                                          </div>
+                                        </CommandItem>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
+
+                    {/* Unclassified Group if any */}
+                    {categoryTree.unclassified_banks && categoryTree.unclassified_banks.length > 0 && (
+                      <div className="mt-2 border-t pt-2">
+                        <div className="px-3 py-1 text-[11px] font-bold text-muted-foreground/80 flex items-center justify-between">
+                          <span className="text-amber-600 dark:text-amber-400">未分类记忆库</span>
+                          <span className="text-[10px] text-muted-foreground/60">
+                            {categoryTree.unclassified_banks.length} 个
                           </span>
                         </div>
-                      </CommandItem>
-                    );
-                  })}
-                </CommandGroup>
-                {hasMoreBanks && (
+                        <div className="pl-2 pr-1 space-y-0.5 mt-0.5">
+                          {categoryTree.unclassified_banks.map((b: any) => {
+                            const isSelected = currentBank === b.bank_id;
+                            const bankDetail = bankInfos.find((x) => x.bank_id === b.bank_id);
+                            const factCount = b.fact_count ?? bankDetail?.fact_count ?? 0;
+                            const barPct = maxFactCount > 0 ? (factCount / maxFactCount) * 100 : 0;
+                            return (
+                              <CommandItem
+                                key={b.bank_id}
+                                value={`${b.display_name || b.bank_id} ${b.bank_id}`}
+                                onSelect={() => {
+                                  setCurrentBank(b.bank_id);
+                                  setOpen(false);
+                                  const view = searchParams.get("view") || "data";
+                                  const subTab = searchParams.get("subTab");
+                                  const queryString = subTab
+                                    ? `?view=${view}&subTab=${subTab}`
+                                    : `?view=${view}`;
+                                  router.push(bankRoute(b.bank_id, queryString));
+                                }}
+                                className={cn(
+                                  "relative overflow-hidden py-2 mb-0.5 group rounded cursor-pointer",
+                                  isSelected && "ring-1 ring-inset ring-primary/50"
+                                )}
+                              >
+                                <div
+                                  className="absolute inset-y-0 left-0 bg-primary/15 dark:bg-primary/20 rounded-[inherit] transition-all"
+                                  style={{ width: `${barPct}%` }}
+                                />
+                                <div className="relative flex items-center w-full gap-1.5 text-xs">
+                                  <Check
+                                    className={cn(
+                                      "h-3.5 w-3.5 shrink-0",
+                                      isSelected ? "opacity-100 text-primary" : "opacity-0"
+                                    )}
+                                  />
+                                  <span
+                                    className={cn(
+                                      "truncate flex-1 font-mono text-[11px]",
+                                      isSelected ? "font-semibold" : "text-muted-foreground"
+                                    )}
+                                    title={b.bank_id}
+                                  >
+                                    {b.display_name || b.bank_id}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    title="设置分类"
+                                    className="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-accent-foreground/10 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity shrink-0"
+                                    onClick={(e) => handleOpenEditClassification(b, e)}
+                                  >
+                                    <Tag className="h-3 w-3 text-amber-600 hover:text-amber-500" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    aria-label={tNavBank("copyName")}
+                                    title={tNavBank("copyName")}
+                                    className="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-accent-foreground/10 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity shrink-0"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      navigator.clipboard.writeText(b.bank_id).then(
+                                        () => toast.success(tNavBank("copied")),
+                                        () => toast.error(tNavBank("copied"))
+                                      );
+                                    }}
+                                  >
+                                    <Copy className="h-3 w-3 text-muted-foreground" />
+                                  </button>
+                                  <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground/70">
+                                    {factCount > 0 ? (
+                                      <>{formatCompact(factCount)}</>
+                                    ) : (
+                                      <span className="italic text-muted-foreground/40">empty</span>
+                                    )}
+                                  </span>
+                                </div>
+                              </CommandItem>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <CommandGroup
+                    className={cn(
+                      "transition-opacity duration-150 motion-reduce:transition-none",
+                      banksLoading && bankInfos.length > 0 && "opacity-40"
+                    )}
+                  >
+                    {orderedBanks.map((bank, index) => {
+                      const barPct = (bank.fact_count / maxFactCount) * 100;
+                      const isSelected = currentBank === bank.bank_id;
+                      const lastWriteAt = bank.last_write_at || bank.last_document_at;
+                      return (
+                        <CommandItem
+                          key={bank.bank_id}
+                          value={`${bank.name || bank.bank_id} ${bank.bank_id}`}
+                          onSelect={(value) => {
+                            setCurrentBank(bank.bank_id);
+                            setOpen(false);
+                            const view = searchParams.get("view") || "data";
+                            const subTab = searchParams.get("subTab");
+                            const queryString = subTab
+                              ? `?view=${view}&subTab=${subTab}`
+                              : `?view=${view}`;
+                            router.push(bankRoute(bank.bank_id, queryString));
+                          }}
+                          className={cn(
+                            "relative overflow-hidden py-2.5 mb-0.5 group animate-list-row-enter",
+                            isSelected && "ring-1 ring-inset ring-primary/50"
+                          )}
+                          style={{
+                            animationDelay: `${Math.min(index % BANKS_PAGE_SIZE, 10) * 18}ms`,
+                          }}
+                        >
+                          <div
+                            className="absolute inset-y-0 left-0 bg-primary/15 dark:bg-primary/20 rounded-[inherit] transition-all"
+                            style={{ width: `${barPct}%` }}
+                          />
+                          <div className="relative flex items-center w-full gap-2">
+                            <Check
+                              className={cn(
+                                "h-4 w-4 shrink-0",
+                                isSelected ? "opacity-100 text-primary" : "opacity-0"
+                              )}
+                            />
+                            <span
+                              className={cn(
+                                "truncate flex-1",
+                                isSelected ? "font-semibold" : "font-medium"
+                              )}
+                              title={bank.name || bank.bank_id}
+                            >
+                              {bank.name || bank.bank_id}
+                            </span>
+                            <button
+                              type="button"
+                              title="修改分类与属性"
+                              className="inline-flex h-6 w-6 items-center justify-center rounded hover:bg-accent-foreground/10 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity shrink-0"
+                              onClick={(e) => handleOpenEditClassification(bank, e)}
+                            >
+                              <SlidersHorizontal className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={tNavBank("copyName")}
+                              title={tNavBank("copyName")}
+                              className="inline-flex h-6 w-6 items-center justify-center rounded hover:bg-accent-foreground/10 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity shrink-0"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard.writeText(bank.bank_id).then(
+                                  () => toast.success(tNavBank("copied")),
+                                  () => toast.error(tNavBank("copied"))
+                                );
+                              }}
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                            </button>
+                            <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground/70">
+                              {bank.fact_count > 0 ? (
+                                <>
+                                  {formatCompact(bank.fact_count)}
+                                  <span className="ml-1.5 text-muted-foreground/40">
+                                    {lastWriteAt ? formatTimeAgo(lastWriteAt) : ""}
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="italic text-muted-foreground/40">empty</span>
+                              )}
+                            </span>
+                          </div>
+                        </CommandItem>
+                      );
+                    })}
+                  </CommandGroup>
+                )}
+                {hasMoreBanks && viewMode === "flat" && (
                   <div ref={setSentinelEl} className="flex items-center justify-center py-2">
                     {banksLoadingMore && (
                       <span className="animate-soft-fade-in">
@@ -965,6 +1342,100 @@ function BankSelectorInner() {
               </Button>
               <Button onClick={handleCreateBank} disabled={isCreating || !newBankId.trim()}>
                 {isCreating ? tAddDocument("creating") : tCommon("create")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Edit Classification Dialog */}
+        <Dialog open={editClassDialogOpen} onOpenChange={setEditClassDialogOpen}>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Tag className="h-4 w-4 text-primary" />
+                <span>编辑记忆库分类与档案信息</span>
+              </DialogTitle>
+            </DialogHeader>
+            <div className="py-3 space-y-4 text-sm">
+              <div className="rounded-md bg-muted/50 p-2.5 font-mono text-xs text-muted-foreground break-all">
+                Bank ID: <span className="text-foreground font-semibold">{editingClassification.bank_id}</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground mb-1 block">业务空间 (Space)</label>
+                  <select
+                    className="w-full h-9 px-3 rounded-md border border-input bg-background text-xs"
+                    value={editingClassification.space_code}
+                    onChange={(e) => setEditingClassification((prev) => ({ ...prev, space_code: e.target.value }))}
+                  >
+                    <option value="pet_health">宠物健康档案 (pet_health)</option>
+                    <option value="general">通用业务 (general)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground mb-1 block">所属环境 (Environment)</label>
+                  <select
+                    className="w-full h-9 px-3 rounded-md border border-input bg-background text-xs"
+                    value={editingClassification.environment}
+                    onChange={(e) => setEditingClassification((prev) => ({ ...prev, environment: e.target.value }))}
+                  >
+                    <option value="test">测试环境 (test)</option>
+                    <option value="dev">开发环境 (dev)</option>
+                    <option value="prod">正式生产 (prod)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground mb-1 block">主体展示名称 (Display Name)</label>
+                <input
+                  type="text"
+                  placeholder="例如: 小呱 (超能豹猫82号)"
+                  className="w-full h-9 px-3 rounded-md border border-input bg-background text-xs"
+                  value={editingClassification.display_name}
+                  onChange={(e) => setEditingClassification((prev) => ({ ...prev, display_name: e.target.value }))}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground mb-1 block">主体业务ID (如档案号)</label>
+                  <input
+                    type="text"
+                    placeholder="例如: 82"
+                    className="w-full h-9 px-3 rounded-md border border-input bg-background text-xs"
+                    value={editingClassification.subject_id}
+                    onChange={(e) => setEditingClassification((prev) => ({ ...prev, subject_id: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground mb-1 block">扩展标签 (逗号分隔)</label>
+                  <input
+                    type="text"
+                    placeholder="例如: cat,bengal,vip"
+                    className="w-full h-9 px-3 rounded-md border border-input bg-background text-xs"
+                    value={editingClassification.tags}
+                    onChange={(e) => setEditingClassification((prev) => ({ ...prev, tags: e.target.value }))}
+                  />
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setEditClassDialogOpen(false)}
+                disabled={isSavingClassification}
+              >
+                取消
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleSaveClassification}
+                disabled={isSavingClassification}
+              >
+                {isSavingClassification ? "保存中..." : "保存分类"}
               </Button>
             </DialogFooter>
           </DialogContent>
