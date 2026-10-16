@@ -21,6 +21,8 @@ exactly what makes it worth having.
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 import pytest
 
 from hindsight_system_tests.payloads import consolidation, extracted, fact
@@ -117,3 +119,47 @@ async def test_a_retained_memory_comes_back_from_recall(client, llm, bank_id, se
     assert response.entities is None
     assert response.chunks is None
     assert response.source_facts is None
+
+
+async def test_fresh_bank_async_retain_replay_and_recall(client, llm, bank_id, settled):
+    """Fresh-bank lifecycle must work after the startup schema initialization."""
+    content = "Initialization probe: synthetic test data."
+    text = "Initialization probe stored"
+    llm.on_step("extract_facts", contains="Initialization probe").returns(extracted(fact(text)))
+    llm.on_step("consolidate").returns(consolidation())
+
+    await client.acreate_bank(bank_id=bank_id, name="Initialization regression")
+    operation_id = str(uuid4())
+    retained = await client.aretain(
+        bank_id=bank_id,
+        content=content,
+        document_id="initialization-probe",
+        metadata={"test": "initialization"},
+        tags=["initialization"],
+        retain_async=True,
+        operation_id=operation_id,
+    )
+    assert retained.operation_id == operation_id
+    await settled(bank_id)
+
+    recalled = await client.arecall(bank_id=bank_id, query="Initialization probe")
+    assert len(recalled.results) == 1
+    result = recalled.results[0]
+    assert result.text == text
+    assert result.document_id == "initialization-probe"
+    assert result.metadata == {"test": "initialization"}
+    assert result.tags == ["initialization"]
+
+    replayed = await client.aretain(
+        bank_id=bank_id,
+        content=content,
+        document_id="initialization-probe",
+        metadata={"test": "initialization"},
+        tags=["initialization"],
+        retain_async=True,
+        operation_id=operation_id,
+    )
+    assert replayed.operation_id == operation_id
+    await settled(bank_id)
+    again = await client.arecall(bank_id=bank_id, query="Initialization probe")
+    assert [entry.id for entry in again.results] == [result.id]

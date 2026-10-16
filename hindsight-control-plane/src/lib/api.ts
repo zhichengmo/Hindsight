@@ -466,7 +466,11 @@ export class ControlPlaneClient {
   /**
    * Get hierarchical classification tree for banks
    */
-  async getBankCategoryTree(params?: { space_code?: string; environment?: string; keyword?: string }) {
+  async getBankCategoryTree(params?: {
+    space_code?: string;
+    environment?: string;
+    keyword?: string;
+  }) {
     const search = new URLSearchParams();
     if (params?.space_code) search.set("space_code", params.space_code);
     if (params?.environment) search.set("environment", params.environment);
@@ -478,11 +482,49 @@ export class ControlPlaneClient {
     );
   }
 
+  async listBankSpaces() {
+    return this.fetchApi<{
+      code: number;
+      message: string;
+      data: Array<{
+        space_code: string;
+        name: string;
+        description: string;
+        sort_order: number;
+        is_active: string;
+      }>;
+    }>("/api/bank-categories/spaces", { cache: "no-store" as RequestCache });
+  }
+
+  async saveBankSpace(payload: {
+    space_code: string;
+    name: string;
+    description?: string;
+    sort_order?: number;
+    is_active?: string;
+  }) {
+    return this.fetchApi<{
+      code: number;
+      message: string;
+      data: {
+        space_code: string;
+        name: string;
+        description: string;
+        sort_order: number;
+        is_active: string;
+      };
+    }>("/api/bank-categories/spaces", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
+
   /**
    * Save or update bank classification
    */
   async saveBankClassification(payload: {
     bank_id: string;
+    bank_name?: string;
     space_code?: string;
     environment?: string;
     subject_type?: string;
@@ -491,10 +533,13 @@ export class ControlPlaneClient {
     tags?: string;
     sort_order?: number;
   }) {
-    return this.fetchApi<{ code: number; message: string; data: any }>("/api/bank-categories/save", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
+    return this.fetchApi<{ code: number; message: string; data: any }>(
+      "/api/bank-categories/save",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }
+    );
   }
 
   async listBanks(params?: { q?: string; limit?: number; offset?: number }) {
@@ -512,10 +557,10 @@ export class ControlPlaneClient {
   /**
    * Create a new bank
    */
-  async createBank(bankId: string) {
+  async createBank(bankId: string, name: string) {
     return this.fetchApi<{ bank_id: string }>("/api/banks", {
       method: "POST",
-      body: JSON.stringify({ bank_id: bankId }),
+      body: JSON.stringify({ bank_id: bankId, name }),
     });
   }
 

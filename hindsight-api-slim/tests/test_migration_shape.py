@@ -126,3 +126,23 @@ def test_migration_concurrently_ddl_runs_in_autocommit_block(path: Path) -> None
         "Wrap it in `with op.get_context().autocommit_block():` — CONCURRENTLY cannot "
         "run inside Alembic's migration transaction."
     )
+
+
+def test_classification_tables_preserve_logical_links_and_backup_coverage() -> None:
+    """Business classification uses string states and is included in full backups."""
+    from sqlalchemy import Text, UniqueConstraint
+
+    from hindsight_api.admin.cli import BACKUP_TABLES
+    from hindsight_api.models import BankClassification, MemorySpace
+
+    for model, business_key in ((MemorySpace, "space_code"), (BankClassification, "bank_id")):
+        table = model.__table__
+        assert not table.foreign_keys
+        assert table.name in BACKUP_TABLES
+        assert any(
+            isinstance(constraint, UniqueConstraint) and set(constraint.columns.keys()) == {business_key}
+            for constraint in table.constraints
+        )
+        assert table.c.id.identity is not None
+    assert isinstance(MemorySpace.__table__.c.is_active.type, Text)
+    assert str(MemorySpace.__table__.c.is_active.server_default.arg) == "enabled"

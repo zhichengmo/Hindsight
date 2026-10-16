@@ -294,7 +294,7 @@ export function BanksOverview() {
         )}
       </div>
 
-      {loading && banks.length === 0 ? (
+      {loading ? (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
           <Spinner size="sm" />
           <span>{tCommon("loading")}</span>

@@ -163,19 +163,25 @@ def run_migrations_online() -> None:
         else:
             _configure_pg_session(connectable, connection, target_schema)
 
-        context_opts = {
-            "connection": connection,
-            "target_metadata": target_metadata,
-        }
-        if target_schema and not is_oracle:
-            # Oracle has no equivalent of PG's per-schema version table; the
-            # ``alembic_version`` table lives in CURRENT_SCHEMA implicitly.
-            context_opts["version_table_schema"] = target_schema
-
-        context.configure(**context_opts)
+        # Oracle's version table lives in CURRENT_SCHEMA implicitly.
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            version_table_schema=target_schema if not is_oracle else None,
+        )
 
         with context.begin_transaction():
             context.run_migrations()
+            if not is_oracle:
+                # These PG-only classification tables were absent from the core revisions.
+                # Bootstrap only their metadata after those revisions;
+                # checkfirst preserves existing tables/data and explicit schema translation
+                # keeps tenant initialization out of public. No historical revision is edited.
+                target_metadata.create_all(
+                    bind=connection.execution_options(schema_translate_map={None: target_schema or "public"}),
+                    tables=[target_metadata.tables["memory_spaces"], target_metadata.tables["bank_classifications"]],
+                    checkfirst=True,
+                )
 
         # Always commit. PG needs it for the explicit RW-mode SET to persist;
         # Oracle needs it because each DDL auto-commits but the trailing

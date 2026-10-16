@@ -3,11 +3,33 @@ Bank classifications and multi-dimensional hierarchy API routes.
 Complies with AGENTS.md rules:
 - No dynamic path params (/{id}), use query params (?id=... or ?bank_id=...) or request body.
 """
-from typing import Any, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+
+import re
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-router = APIRouter(prefix="/v1/bank-categories", tags=["Bank Classifications"])
+from hindsight_api.engine.schema import fq_table
+from hindsight_api.models import RequestContext
+
+
+async def require_classification_access(request: Request, authorization: str | None = Header(default=None)) -> None:
+    """分类接口复用引擎Tenant鉴权；API Key不承载主人或宠物信息。"""
+    memory = getattr(request.app.state, "memory", None)
+    if memory is None:
+        raise HTTPException(status_code=503, detail="Memory engine not initialized")
+    api_key = authorization.strip() if authorization else None
+    if api_key and api_key.lower().startswith("bearer "):
+        api_key = api_key[7:].strip()
+    await memory.authorize_classification_access(RequestContext(api_key=api_key))
+
+
+router = APIRouter(
+    prefix="/v1/bank-categories",
+    tags=["Bank Classifications"],
+    dependencies=[Depends(require_classification_access)],
+)
 
 
 class SpaceItem(BaseModel):
@@ -33,9 +55,13 @@ class BankClassificationItem(BaseModel):
 
 class SaveClassificationRequest(BaseModel):
     bank_id: str = Field(..., description="Target bank id")
+    bank_name: Optional[str] = Field(default=None, description="Optional canonical bank display name")
     space_code: str = Field(default="pet_health", description="Space code")
     environment: str = Field(default="test", description="Environment: dev/test/staging/prod")
-    subject_type: str = Field(default="pet_profile", description="Subject type: pet_profile/user/agent/system")
+    subject_type: str = Field(
+        default="pet_profile",
+        description="Subject type, e.g. pet_profile/business_object/user/agent/system",
+    )
     subject_id: str = Field(default="", description="Subject identifier e.g. 82")
     display_name: str = Field(..., description="Clean display name e.g. 小呱 · 档案82")
     tags: str = Field(default="", description="Comma separated tags")
@@ -60,6 +86,16 @@ class DeleteClassificationRequest(BaseModel):
     bank_id: str = Field(..., description="Target bank id to delete from classifications")
 
 
+class SaveSpaceRequest(BaseModel):
+    """Create or update a business space. Codes are stable machine identifiers."""
+
+    space_code: str = Field(..., description="Lowercase machine code, e.g. pet_health")
+    name: str = Field(..., description="Human-readable business space name")
+    description: str = Field(default="", description="Business space description")
+    sort_order: int = Field(default=0, description="Display order")
+    is_active: str = Field(default="enabled", description="String status, e.g. enabled or disabled")
+
+
 async def _get_db_pool(request: Request):
     """Retrieve asyncpg pool from memory backend."""
     memory = getattr(request.app.state, "memory", None)
@@ -69,6 +105,91 @@ async def _get_db_pool(request: Request):
     if not pool:
         raise HTTPException(status_code=500, detail="Database pool not available")
     return pool
+
+
+def _normalize_space(payload: SaveSpaceRequest) -> tuple[str, str, str, int, str]:
+    space_code = payload.space_code.strip().lower()
+    name = payload.name.strip()
+    description = payload.description.strip()
+    is_active = payload.is_active.strip().lower() or "enabled"
+    if not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", space_code):
+        raise HTTPException(
+            status_code=400,
+            detail="space_code must start with a lowercase letter and contain only lowercase letters, numbers, '_' or '-'.",
+        )
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    if is_active not in {"enabled", "disabled"}:
+        raise HTTPException(status_code=400, detail="is_active must be enabled or disabled")
+    return space_code, name, description, payload.sort_order, is_active
+
+
+@router.get("/spaces", summary="List business spaces")
+async def list_spaces(request: Request):
+    """Return configured business spaces for classification forms."""
+    pool = await _get_db_pool(request)
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f"""
+            SELECT space_code, name, description, sort_order, is_active, created_at, updated_at
+            FROM {fq_table("memory_spaces")}
+            WHERE is_active = 'enabled'
+            ORDER BY sort_order ASC, id ASC;
+            """
+        )
+        return {
+            "code": 0,
+            "message": "success",
+            "data": [
+                {
+                    "space_code": row["space_code"],
+                    "name": row["name"],
+                    "description": row["description"] or "",
+                    "sort_order": row["sort_order"] or 0,
+                    "is_active": row["is_active"] or "enabled",
+                    "created_at": str(row["created_at"]) if row["created_at"] else None,
+                    "updated_at": str(row["updated_at"]) if row["updated_at"] else None,
+                }
+                for row in rows
+            ],
+        }
+
+
+@router.post("/spaces", summary="Create or update a business space")
+async def save_space(request: Request, payload: SaveSpaceRequest):
+    """Upsert a business space without coupling it to any bank row."""
+    space_code, name, description, sort_order, is_active = _normalize_space(payload)
+    pool = await _get_db_pool(request)
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            f"""
+            INSERT INTO {fq_table("memory_spaces")} (space_code, name, description, sort_order, is_active)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (space_code) DO UPDATE SET
+                name = EXCLUDED.name,
+                description = EXCLUDED.description,
+                sort_order = EXCLUDED.sort_order,
+                is_active = EXCLUDED.is_active,
+                updated_at = CURRENT_TIMESTAMP
+            RETURNING space_code, name, description, sort_order, is_active, created_at, updated_at;
+            """,
+            space_code,
+            name,
+            description,
+            sort_order,
+            is_active,
+        )
+        return {
+            "code": 0,
+            "message": "saved_successfully",
+            "data": {
+                "space_code": row["space_code"],
+                "name": row["name"],
+                "description": row["description"] or "",
+                "sort_order": row["sort_order"] or 0,
+                "is_active": row["is_active"] or "enabled",
+            },
+        }
 
 
 @router.get("/tree", summary="Get hierarchical classification tree")
@@ -84,32 +205,40 @@ async def get_classification_tree(
     pool = await _get_db_pool(request)
     async with pool.acquire() as conn:
         # 1. Fetch spaces
-        space_rows = await conn.fetch("SELECT space_code, name, description, sort_order FROM memory_spaces ORDER BY sort_order ASC, id ASC;")
+        space_rows = await conn.fetch(
+            f"SELECT space_code, name, description, sort_order FROM {fq_table('memory_spaces')} ORDER BY sort_order ASC, id ASC;"
+        )
         spaces_map = {
             r["space_code"]: {
                 "space_code": r["space_code"],
                 "space_name": r["name"],
                 "description": r["description"],
-                "environments": {}
+                "environments": {},
             }
             for r in space_rows
         }
 
         # 2. Fetch all banks from banks table to count facts and find unclassified ones
-        all_banks_rows = await conn.fetch("""
-            SELECT b.bank_id, 
+        all_banks_rows = await conn.fetch(f"""
+            SELECT b.bank_id,
                    COALESCE(m.cnt, 0) as fact_count,
                    b.updated_at
-            FROM banks b
+            FROM {fq_table("banks")} b
             LEFT JOIN (
-                SELECT bank_id, COUNT(*) as cnt FROM memory_units GROUP BY bank_id
+                SELECT bank_id, COUNT(*) as cnt FROM {fq_table("memory_units")} GROUP BY bank_id
             ) m ON b.bank_id = m.bank_id
             ORDER BY b.updated_at DESC;
         """)
-        bank_stats = {r["bank_id"]: {"fact_count": r["fact_count"], "updated_at": str(r["updated_at"]) if r["updated_at"] else None} for r in all_banks_rows}
+        bank_stats = {
+            r["bank_id"]: {
+                "fact_count": r["fact_count"],
+                "updated_at": str(r["updated_at"]) if r["updated_at"] else None,
+            }
+            for r in all_banks_rows
+        }
 
         # 3. Fetch classification records
-        sql = "SELECT bank_id, space_code, environment, subject_type, subject_id, display_name, tags, sort_order, updated_at FROM bank_classifications WHERE 1=1"
+        sql = f"SELECT bank_id, space_code, environment, subject_type, subject_id, display_name, tags, sort_order, updated_at FROM {fq_table('bank_classifications')} WHERE 1=1"
         params = []
         if space_code:
             params.append(space_code)
@@ -135,40 +264,30 @@ async def get_classification_tree(
 
             s_code = cr["space_code"]
             env = cr["environment"]
-            
+
             if s_code not in spaces_map:
-                spaces_map[s_code] = {
-                    "space_code": s_code,
-                    "space_name": s_code,
-                    "description": "",
-                    "environments": {}
-                }
-            
+                spaces_map[s_code] = {"space_code": s_code, "space_name": s_code, "description": "", "environments": {}}
+
             envs_dict = spaces_map[s_code]["environments"]
             if env not in envs_dict:
-                env_names = {
-                    "test": "测试环境",
-                    "dev": "开发环境",
-                    "staging": "预发环境",
-                    "prod": "正式环境"
+                env_names = {"test": "测试环境", "dev": "开发环境", "staging": "预发环境", "prod": "正式环境"}
+                envs_dict[env] = {"env_code": env, "env_name": env_names.get(env, env), "banks": []}
+
+            stats = bank_stats.get(
+                b_id, {"fact_count": 0, "updated_at": str(cr["updated_at"]) if cr["updated_at"] else None}
+            )
+            envs_dict[env]["banks"].append(
+                {
+                    "bank_id": b_id,
+                    "display_name": d_name,
+                    "subject_type": cr["subject_type"],
+                    "subject_id": cr["subject_id"],
+                    "tags": cr["tags"],
+                    "sort_order": cr["sort_order"],
+                    "fact_count": stats["fact_count"],
+                    "updated_at": stats["updated_at"],
                 }
-                envs_dict[env] = {
-                    "env_code": env,
-                    "env_name": env_names.get(env, env),
-                    "banks": []
-                }
-            
-            stats = bank_stats.get(b_id, {"fact_count": 0, "updated_at": str(cr["updated_at"]) if cr["updated_at"] else None})
-            envs_dict[env]["banks"].append({
-                "bank_id": b_id,
-                "display_name": d_name,
-                "subject_type": cr["subject_type"],
-                "subject_id": cr["subject_id"],
-                "tags": cr["tags"],
-                "sort_order": cr["sort_order"],
-                "fact_count": stats["fact_count"],
-                "updated_at": stats["updated_at"]
-            })
+            )
 
         # 4. Find unclassified banks
         unclassified = []
@@ -178,32 +297,38 @@ async def get_classification_tree(
                     kw = keyword.lower()
                     if kw not in b_id.lower():
                         continue
-                unclassified.append({
-                    "bank_id": b_id,
-                    "display_name": b_id,
-                    "fact_count": b_data["fact_count"],
-                    "updated_at": b_data["updated_at"]
-                })
+                unclassified.append(
+                    {
+                        "bank_id": b_id,
+                        "display_name": b_id,
+                        "fact_count": b_data["fact_count"],
+                        "updated_at": b_data["updated_at"],
+                    }
+                )
 
         # Format output
         spaces_result = []
         for s_code, s_info in spaces_map.items():
             env_list = []
             for e_code, e_info in s_info["environments"].items():
-                env_list.append({
-                    "env_code": e_code,
-                    "env_name": e_info["env_name"],
-                    "bank_count": len(e_info["banks"]),
-                    "banks": e_info["banks"]
-                })
+                env_list.append(
+                    {
+                        "env_code": e_code,
+                        "env_name": e_info["env_name"],
+                        "bank_count": len(e_info["banks"]),
+                        "banks": e_info["banks"],
+                    }
+                )
             # Only include space if it has environments or if no filters
             if env_list or not (space_code or environment or keyword):
-                spaces_result.append({
-                    "space_code": s_info["space_code"],
-                    "space_name": s_info["space_name"],
-                    "description": s_info["description"],
-                    "environments": env_list
-                })
+                spaces_result.append(
+                    {
+                        "space_code": s_info["space_code"],
+                        "space_name": s_info["space_name"],
+                        "description": s_info["description"],
+                        "environments": env_list,
+                    }
+                )
 
         return {
             "code": 0,
@@ -211,8 +336,8 @@ async def get_classification_tree(
             "data": {
                 "spaces": spaces_result,
                 "unclassified_count": len(unclassified),
-                "unclassified_banks": unclassified
-            }
+                "unclassified_banks": unclassified,
+            },
         }
 
 
@@ -226,17 +351,16 @@ async def get_classification_detail(
     """
     pool = await _get_db_pool(request)
     async with pool.acquire() as conn:
-        row = await conn.fetchrow("""
+        row = await conn.fetchrow(
+            f"""
             SELECT bank_id, space_code, environment, subject_type, subject_id, display_name, tags, sort_order, created_at, updated_at
-            FROM bank_classifications
+            FROM {fq_table("bank_classifications")}
             WHERE bank_id = $1;
-        """, bank_id)
+        """,
+            bank_id,
+        )
         if not row:
-            return {
-                "code": 0,
-                "message": "not_classified",
-                "data": None
-            }
+            return {"code": 0, "message": "not_classified", "data": None}
         return {
             "code": 0,
             "message": "success",
@@ -250,8 +374,8 @@ async def get_classification_detail(
                 "tags": row["tags"],
                 "sort_order": row["sort_order"],
                 "created_at": str(row["created_at"]),
-                "updated_at": str(row["updated_at"])
-            }
+                "updated_at": str(row["updated_at"]),
+            },
         }
 
 
@@ -273,26 +397,44 @@ async def save_classification(
     """
     pool = await _get_db_pool(request)
     async with pool.acquire() as conn:
-        await conn.execute("""
-            INSERT INTO bank_classifications 
-                (bank_id, space_code, environment, subject_type, subject_id, display_name, tags, sort_order)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            ON CONFLICT (bank_id) DO UPDATE SET
-                space_code = EXCLUDED.space_code,
-                environment = EXCLUDED.environment,
-                subject_type = EXCLUDED.subject_type,
-                subject_id = EXCLUDED.subject_id,
-                display_name = EXCLUDED.display_name,
-                tags = EXCLUDED.tags,
-                sort_order = EXCLUDED.sort_order,
-                updated_at = CURRENT_TIMESTAMP;
-        """, payload.bank_id, payload.space_code, payload.environment, payload.subject_type, payload.subject_id, payload.display_name, payload.tags, payload.sort_order)
+        async with conn.transaction():
+            if payload.bank_name is not None:
+                bank_name = payload.bank_name.strip()
+                if not bank_name:
+                    raise HTTPException(status_code=400, detail="bank_name cannot be empty")
+                updated = await conn.execute(
+                    f"UPDATE {fq_table('banks')} SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE bank_id = $2",
+                    bank_name,
+                    payload.bank_id,
+                )
+                if updated == "UPDATE 0":
+                    raise HTTPException(status_code=404, detail="bank_id not found")
+            await conn.execute(
+                f"""
+                INSERT INTO {fq_table("bank_classifications")}
+                    (bank_id, space_code, environment, subject_type, subject_id, display_name, tags, sort_order)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                ON CONFLICT (bank_id) DO UPDATE SET
+                    space_code = EXCLUDED.space_code,
+                    environment = EXCLUDED.environment,
+                    subject_type = EXCLUDED.subject_type,
+                    subject_id = EXCLUDED.subject_id,
+                    display_name = EXCLUDED.display_name,
+                    tags = EXCLUDED.tags,
+                    sort_order = EXCLUDED.sort_order,
+                    updated_at = CURRENT_TIMESTAMP;
+                """,
+                payload.bank_id,
+                payload.space_code,
+                payload.environment,
+                payload.subject_type,
+                payload.subject_id,
+                payload.display_name,
+                payload.tags,
+                payload.sort_order,
+            )
 
-        return {
-            "code": 0,
-            "message": "saved_successfully",
-            "data": {"bank_id": payload.bank_id}
-        }
+        return {"code": 0, "message": "saved_successfully", "data": {"bank_id": payload.bank_id}}
 
 
 @router.post("/batch-classify", summary="Batch classify banks")
@@ -307,8 +449,9 @@ async def batch_classify(
     async with pool.acquire() as conn:
         async with conn.transaction():
             for item in payload.mappings:
-                await conn.execute("""
-                    INSERT INTO bank_classifications 
+                await conn.execute(
+                    f"""
+                    INSERT INTO {fq_table("bank_classifications")}
                         (bank_id, space_code, environment, subject_type, subject_id, display_name, tags)
                     VALUES ($1, $2, $3, $4, $5, $6, $7)
                     ON CONFLICT (bank_id) DO UPDATE SET
@@ -319,13 +462,17 @@ async def batch_classify(
                         display_name = EXCLUDED.display_name,
                         tags = EXCLUDED.tags,
                         updated_at = CURRENT_TIMESTAMP;
-                """, item.bank_id, payload.space_code, payload.environment, item.subject_type, item.subject_id, item.display_name, item.tags)
+                """,
+                    item.bank_id,
+                    payload.space_code,
+                    payload.environment,
+                    item.subject_type,
+                    item.subject_id,
+                    item.display_name,
+                    item.tags,
+                )
 
-        return {
-            "code": 0,
-            "message": "batch_classified_successfully",
-            "data": {"count": len(payload.mappings)}
-        }
+        return {"code": 0, "message": "batch_classified_successfully", "data": {"count": len(payload.mappings)}}
 
 
 @router.post("/delete", summary="Remove a bank classification")
@@ -338,9 +485,7 @@ async def delete_classification(
     """
     pool = await _get_db_pool(request)
     async with pool.acquire() as conn:
-        result = await conn.execute("DELETE FROM bank_classifications WHERE bank_id = $1;", payload.bank_id)
-        return {
-            "code": 0,
-            "message": "deleted_successfully",
-            "data": {"bank_id": payload.bank_id, "result": result}
-        }
+        result = await conn.execute(
+            f"DELETE FROM {fq_table('bank_classifications')} WHERE bank_id = $1;", payload.bank_id
+        )
+        return {"code": 0, "message": "deleted_successfully", "data": {"bank_id": payload.bank_id, "result": result}}

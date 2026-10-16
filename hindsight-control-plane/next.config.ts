@@ -28,6 +28,9 @@ const nextConfig: NextConfig = {
   distDir,
   basePath: basePath,
   assetPrefix: basePath,
+  // The dev server is commonly opened through either localhost or 127.0.0.1.
+  // Allow the loopback IP so Next's HMR/client resources can hydrate the page.
+  allowedDevOrigins: ['127.0.0.1'],
   // Disable request logging in production
   logging: false,
   experimental: {

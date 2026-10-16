@@ -26,6 +26,48 @@ from hindsight_api.models import RequestContext
 from tests.llm_judge import assert_meets_criteria
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("authorization", "expected_status"),
+    [(None, 401), ("Bearer incorrect", 401), ("Bearer TEST_ONLY", 200), ("TEST_ONLY", 200)],
+)
+async def test_classifications_use_service_key_before_sql(monkeypatch, authorization, expected_status):
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    from hindsight_api.api import http as http_module
+    from hindsight_api.engine.memory_engine import MemoryEngine
+    from hindsight_api.extensions.builtin.tenant import ApiKeyTenantExtension
+
+    sql_calls = []
+
+    class Connection:
+        async def fetch(self, query):
+            sql_calls.append(query)
+            return []
+
+    class Pool:
+        @asynccontextmanager
+        async def acquire(self):
+            yield Connection()
+
+    memory = MemoryEngine.__new__(MemoryEngine)
+    memory._initialized = True
+    memory._pool = Pool()
+    memory._tenant_extension = ApiKeyTenantExtension({"api_key": "TEST_ONLY"})
+    memory._audit_logger = None
+    memory._operation_validator = None
+    memory._ext_ctx = SimpleNamespace()
+    monkeypatch.setattr(http_module, "load_extension", lambda *args: None)
+    monkeypatch.setattr(http_module, "_instrument_app_for_tracing", lambda *args: None)
+    app = create_app(memory)
+    headers = {"Authorization": authorization} if authorization else {}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/v1/bank-categories/spaces", headers=headers)
+    assert response.status_code == expected_status
+    assert bool(sql_calls) == (expected_status == 200)
+
+
 def _make_operation_validator(
     *,
     reject_bank_write: BankWriteOperation | None = None,
@@ -129,8 +171,6 @@ async def test_full_api_workflow(api_client, test_bank_id):
     # List banks (should be empty initially or have other test banks)
     response = await api_client.get("/v1/default/banks", params={"limit": 1000})
     assert response.status_code == 200
-    initial_banks_data = response.json()["banks"]
-    initial_banks = [a["bank_id"] for a in initial_banks_data]
 
     # ================================================================
     # 2. Memory Storage (implicitly creates the bank)

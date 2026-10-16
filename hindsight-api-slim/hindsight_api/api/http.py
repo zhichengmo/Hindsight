@@ -4892,9 +4892,9 @@ def create_app(
     _register_routes(app)
     # Mount bank classification router
     from hindsight_api.api.classifications import router as classifications_router
+
     use_unknown_params_routes(classifications_router)
     app.include_router(classifications_router)
-
 
     # Mount HTTP extension router if available
     if http_extension:

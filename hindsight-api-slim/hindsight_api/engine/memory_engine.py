@@ -2628,6 +2628,14 @@ class MemoryEngine(MemoryEngineInterface):
         """The configured tenant extension, if any."""
         return self._tenant_extension
 
+    async def authorize_classification_access(self, request_context: "RequestContext") -> None:
+        """Apply the same configured tenant authentication to classification routes.
+
+        The default extension remains usable without credentials. An API-key
+        extension rejects missing/incorrect keys before any classification SQL.
+        """
+        await self._authenticate_tenant(request_context)
+
     async def _validate_operation(self, validation_coro) -> "ValidationResult | None":
         """
         Run validation if an operation validator is configured.
@@ -10366,7 +10374,9 @@ class MemoryEngine(MemoryEngineInterface):
 
                         if delete_bank_profile:
                             # Clean up classification metadata
-                            await conn.execute(f"DELETE FROM {fq_table('bank_classifications')} WHERE bank_id = $1", bank_id)
+                            await conn.execute(
+                                f"DELETE FROM {fq_table('bank_classifications')} WHERE bank_id = $1", bank_id
+                            )
                             # Delete the bank profile and retrieve internal_id for HNSW index cleanup
                             internal_id = await conn.fetchval(
                                 f"DELETE FROM {fq_table('banks')} WHERE bank_id = $1 RETURNING internal_id", bank_id

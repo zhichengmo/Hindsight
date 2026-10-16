@@ -34,7 +34,7 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
-  const { bank_id } = body;
+  const { bank_id, name } = body;
 
   if (!bank_id) {
     return NextResponse.json(
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
   const response = await sdk.createOrUpdateBank({
     client: lowLevelClient,
     path: { bank_id },
-    body: {},
+    body: { name: typeof name === "string" && name.trim() ? name.trim() : undefined },
   });
   return respondWithSdk(response, "Failed to create bank", HTTP_CREATED, { request });
 }

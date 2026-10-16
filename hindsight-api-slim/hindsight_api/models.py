@@ -62,13 +62,16 @@ class RequestContext:
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     Float,
     ForeignKey,
     ForeignKeyConstraint,
+    Identity,
     Index,
     Integer,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy import (
@@ -85,6 +88,57 @@ class Base(AsyncAttrs, DeclarativeBase):
     """Base class for all models."""
 
     pass
+
+
+class MemorySpace(Base):
+    """PostgreSQL业务空间目录；由启动初始化补齐，关联关系由服务维护。"""
+
+    __tablename__ = "memory_spaces"
+    __table_args__ = (
+        UniqueConstraint("space_code", name="uq_memory_spaces_space_code"),
+        {"comment": "记忆业务空间目录，分类通过space_code逻辑关联"},
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True, comment="目录自增ID")
+    space_code: Mapped[str] = mapped_column(Text, nullable=False, comment="稳定业务空间编码")
+    name: Mapped[str] = mapped_column(Text, nullable=False, comment="空间展示名称")
+    description: Mapped[str] = mapped_column(Text, nullable=False, server_default="", comment="空间说明")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0", comment="展示顺序")
+    is_active: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default="enabled", comment="字符串状态：enabled启用/disabled停用"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now(), comment="创建时间"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now(), comment="最后更新时间"
+    )
+
+
+class BankClassification(Base):
+    """PostgreSQL Bank分类；bank_id、space_code保留逻辑关联，不创建外键。"""
+
+    __tablename__ = "bank_classifications"
+    __table_args__ = (
+        UniqueConstraint("bank_id", name="uq_bank_classifications_bank_id"),
+        {"comment": "记忆Bank业务分类，关联字段不设置外键"},
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True, comment="分类自增ID")
+    bank_id: Mapped[str] = mapped_column(Text, nullable=False, comment="逻辑关联banks.bank_id")
+    space_code: Mapped[str] = mapped_column(Text, nullable=False, comment="逻辑关联memory_spaces.space_code")
+    environment: Mapped[str] = mapped_column(Text, nullable=False, comment="环境编码，如dev/test/staging/prod")
+    subject_type: Mapped[str] = mapped_column(Text, nullable=False, comment="主体类型，如pet_profile/user/agent/system")
+    subject_id: Mapped[str] = mapped_column(Text, nullable=False, server_default="", comment="关联主体ID字符串")
+    display_name: Mapped[str] = mapped_column(Text, nullable=False, comment="分类展示名称")
+    tags: Mapped[str] = mapped_column(Text, nullable=False, server_default="", comment="逗号分隔的展示标签")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0", comment="展示顺序")
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now(), comment="创建时间"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now(), comment="最后更新时间"
+    )
 
 
 class Document(Base):
