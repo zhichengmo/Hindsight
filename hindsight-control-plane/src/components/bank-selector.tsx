@@ -22,7 +22,7 @@ type DocBlock =
   | { kind: "text"; text: string }
   | { kind: "attachment"; name: string; mediaType: string; data: string; size: number };
 
-import { LanguageSwitcher } from "@/components/language-switcher";
+import { ControlPlaneActions } from "@/components/control-plane-header";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -47,14 +47,12 @@ import {
   Plus,
   FileText,
   Moon,
-  Sun,
   Github,
   Upload,
   X,
   Lock,
   ChevronDown,
   ChevronRight,
-  LogOut,
   Copy,
   Paperclip,
   ChevronUp,
@@ -62,10 +60,10 @@ import {
   Layers,
   FolderTree,
   Tag,
+  Code2,
 } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
-import { useTheme } from "@/lib/theme-context";
 import { useFeatures } from "@/lib/features-context";
 import Image from "next/image";
 import { Textarea } from "@/components/ui/textarea";
@@ -146,8 +144,7 @@ function BankSelectorInner() {
     loadBanks,
     loadMoreBanks,
   } = useBank();
-  const { theme, toggleTheme } = useTheme();
-  const { features } = useFeatures();
+  const { features, authEnabled } = useFeatures();
   const [open, setOpen] = React.useState(false);
   // One-shot spin of the header logo, fired by sidebar navigation (see the
   // "hindsight:logo-spin" listener below). Reset on animationEnd so it can replay.
@@ -828,7 +825,7 @@ function BankSelectorInner() {
 
   return (
     <div className="bg-card text-card-foreground px-5 py-3 border-b-4 border-primary-gradient">
-      <div className="flex items-center gap-4 text-sm">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-sm">
         {/* Logo, split so only the mark spins on navigation while the wordmark
             stays put. The mark is the standalone favicon.png (so it can rotate
             freely); the wordmark is the right slice of the full lockup (logo.png)
@@ -1370,6 +1367,13 @@ function BankSelectorInner() {
         {/* Spacer */}
         <div className="flex-1" />
 
+        <Button variant="ghost" asChild>
+          <a href={withBasePath("/api-access")} title={tNav("apiAccess")}>
+            <Code2 className="h-5 w-5" />
+            <span className="hidden sm:inline">{tNav("apiAccess")}</span>
+          </a>
+        </Button>
+
         {/* GitHub Link */}
         <a
           href="https://github.com/vectorize-io/hindsight"
@@ -1385,39 +1389,7 @@ function BankSelectorInner() {
         {/* Separator */}
         <div className="h-8 w-px bg-border" />
 
-        {/* Dark Mode Toggle */}
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={toggleTheme}
-          className="h-9 w-9"
-          title={theme === "light" ? tNav("darkMode") : tNav("lightMode")}
-        >
-          {theme === "light" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
-        </Button>
-
-        <LanguageSwitcher />
-
-        {features?.access_key_auth && (
-          <>
-            <div className="h-8 w-px bg-border" />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-9 w-9"
-              title="Logout"
-              onClick={async () => {
-                try {
-                  await fetch(withBasePath("/api/auth/logout"), { method: "POST" });
-                } finally {
-                  window.location.href = withBasePath("/login");
-                }
-              }}
-            >
-              <LogOut className="h-5 w-5" />
-            </Button>
-          </>
-        )}
+        <ControlPlaneActions authEnabled={authEnabled} />
 
         <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
           <DialogContent className="sm:max-w-[550px]">
@@ -2710,7 +2682,7 @@ export function BankSelector() {
     <Suspense
       fallback={
         <div className="bg-card text-card-foreground px-5 py-3 border-b-4 border-primary-gradient">
-          <div className="flex items-center gap-4 text-sm">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-sm">
             <Image
               src={withBasePath("/logo.png")}
               alt="Hindsight"

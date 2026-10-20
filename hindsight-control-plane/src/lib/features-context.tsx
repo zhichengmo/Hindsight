@@ -18,6 +18,7 @@ interface Features {
 }
 
 interface FeaturesContextType {
+  authEnabled: boolean;
   features: Features | null;
   loading: boolean;
   error: string | null;
@@ -41,7 +42,13 @@ const defaultFeatures: Features = {
 
 const FeaturesContext = createContext<FeaturesContextType | undefined>(undefined);
 
-export function FeaturesProvider({ children }: { children: React.ReactNode }) {
+export function FeaturesProvider({
+  children,
+  authEnabled = false,
+}: {
+  children: React.ReactNode;
+  authEnabled?: boolean;
+}) {
   const [features, setFeatures] = useState<Features | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +73,7 @@ export function FeaturesProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <FeaturesContext.Provider value={{ features, loading, error }}>
+    <FeaturesContext.Provider value={{ features, loading, error, authEnabled }}>
       {children}
     </FeaturesContext.Provider>
   );

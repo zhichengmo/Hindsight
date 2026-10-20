@@ -1,6 +1,7 @@
 # Node modules (platform-specific native bindings)
 **/node_modules
 **/.next
+hindsight-control-plane/standalone
 
 # Python
 **/__pycache__
@@ -12,6 +13,11 @@
 # Git
 .git
 .gitignore
+
+# Credentials belong in the runtime environment, never in the build context.
+**/.env
+**/.env.*
+!**/.env.example
 
 # IDE
 .idea
@@ -25,6 +31,8 @@ Thumbs.db
 # Build artifacts
 **/target
 **/*.log
+**/*.tar
+**/*.tar.gz
 
 # Test/Dev
 **/coverage

@@ -44,6 +44,9 @@
     "matchAllTooltip": "匹配所有选中标签"
   },
   "nav": {
+    "apiAccess": "API 接入",
+    "logout": "退出登录",
+    "logoutFailed": "退出登录失败，请重试。",
     "home": "前往首页",
     "darkMode": "切换到深色模式",
     "lightMode": "切换到浅色模式",
@@ -1750,15 +1753,25 @@
     "signIn": "登录",
     "signingIn": "正在登录...",
     "invalidKey": "访问密钥无效",
-    "connectFailed": "无法连接到服务器"
+    "connectFailed": "无法连接到服务器",
+    "credentialsDescription": "输入账户和密码以登录控制台",
+    "username": "账户",
+    "usernamePlaceholder": "请输入账户",
+    "password": "密码",
+    "passwordPlaceholder": "请输入密码",
+    "invalidCredentials": "账户或密码错误"
   },
   "api": {
     "errors": {
       "auth": {
+        "accountLoginRequired": "请先配置并使用账户密码登录后查看 API 接入信息。",
+        "dataplaneKeyNotConfigured": "尚未配置数据 API Key。",
         "accessKeyNotConfigured": "未配置访问密钥",
         "invalidRequestBody": "请求体无效",
         "invalidAccessKey": "访问密钥无效",
-        "unauthorized": "未授权"
+        "unauthorized": "未授权",
+        "invalidCredentials": "账户或密码错误",
+        "loginNotConfigured": "未配置控制台登录账户和密码"
       },
       "validation": {
         "bankIdRequired": "bank_id 为必填项",
@@ -2013,5 +2026,64 @@
     "staleAutoTitle": "此模型作用域内有新记忆 — 它会自动刷新",
     "staleManualTitle": "此模型作用域内有新记忆 — 请刷新以同步",
     "inSyncTitle": "此模型作用域内没有新记忆"
+  },
+  "apiAccess": {
+    "title": "API 接入",
+    "description": "使用现有服务 API Key 调用 Hindsight 数据接口；网页登录账户和密码仅用于控制台。",
+    "back": "返回控制台",
+    "loading": "正在加载接入配置…",
+    "loadFailed": "无法加载 API 接入配置。",
+    "connection": "连接配置",
+    "apiBaseUrl": "数据 API 调用地址",
+    "notConfigured": "尚未配置",
+    "swagger": "打开 Swagger 接口文档",
+    "missingUrl": "请在部署环境设置 HINDSIGHT_CP_PUBLIC_API_URL，并重新创建控制台容器。容器内部代理地址不能作为外部调用地址。",
+    "invalidUrl": "HINDSIGHT_CP_PUBLIC_API_URL 必须是 HTTP(S) 基础地址，不能包含账号密码、查询参数或片段。",
+    "show": "查看 Key",
+    "hide": "隐藏 Key",
+    "copy": "复制",
+    "copyKey": "复制 API Key",
+    "copied": "已复制",
+    "copyFailed": "无法自动复制，请选中文本后手动复制。",
+    "missingKey": "请将 HINDSIGHT_CP_DATAPLANE_API_KEY 配置为现有数据 API 服务密钥，不要填写模型厂商 Key 或控制台密码。",
+    "keyHelp": "这里查看的是现有共享服务 API Key，不会生成或更换 Key。仅保存在服务端；Key 不携带宠物身份，也不代替主人授权。",
+    "msPet": "ms-pet 接入配置",
+    "msPetHelp": "ms-pet 已通过以下配置调用 Hindsight，ms-ai-fast 通过 ms-pet 获取历史。保留现有 Key、ENV、Bank ID 和服务可达的 API 地址；公网地址可能与内网服务地址不同。",
+    "examplesTitle": "原生接口调用示例",
+    "exampleHelp": "以下为虚构请求及响应字段节选，不是当前数据。请替换地址、Key 和示例 ID。实际发送写入、召回或删除请求可能产生调用消耗或修改数据；本页不会发送这些请求。",
+    "asyncHelp": "写入返回 success=true、async=true 只表示受理。需使用同一个 operation_id 查询，直到 completed。not_found 是 HTTP 200 返回的操作状态，不代表完成；超时不能直接盲目重发。配置写入可能被禁用，召回空结果也是合法结果。",
+    "request": "请求示例",
+    "response": "返回示例（字段节选）",
+    "fieldsTitle": "字段说明",
+    "field": "字段",
+    "meaning": "含义",
+    "deletionHelp": "删除确认需同时满足：文档 GET 返回 404，且 memories/list 返回 items=[]、total=0；不能只凭 DELETE 回执认定清理完成。",
+    "examples": {
+      "bank": "确保记忆库存在",
+      "configRead": "读取生效配置",
+      "configWrite": "更新记忆库配置",
+      "retain": "异步写入记忆",
+      "operation": "查询操作状态",
+      "recall": "召回记忆候选",
+      "documentRead": "读取来源文档",
+      "documentDelete": "删除文档及其记忆",
+      "verifyDelete": "回查文档记忆是否清理"
+    },
+    "fields": {
+      "f0": "记忆库标识，不是调用者身份；保留业务服务现有生成规则。",
+      "f1": "异步操作的稳定 UUID，提交回执和后续状态查询使用同一个值。",
+      "f2": "pending / processing / completed / failed / cancelled / not_found；只有 completed 表示操作完成。",
+      "f3": "来源文档标识；replace 会覆盖并重新处理该文档，并非只追加写入。",
+      "f4": "来源元数据，所有值必须是字符串，不支持任意嵌套 JSON。",
+      "f5": "召回的候选列表；空结果合法，不代表宠物没有病史。",
+      "f6": "本页条目与符合筛选条件的总数；total 不是本页条目数。",
+      "f7": "updates 是要修改的记忆库配置字段；config 是继承各层配置后实际生效的值（示例只节选部分字段）；overrides 仅包含本记忆库显式覆盖的值，因此继承值可能只出现在 config 中。",
+      "f8": "query 是检索文本；types 选择事实类别；budget 控制检索工作量（示例为 low）；max_tokens 限制返回记忆的 token 预算，不是 HTTP 超时时间。",
+      "f9": "每个候选包含 id 和 text；type 表示事实类别。document_id 与 metadata 用于关联来源证据；业务服务仍需核验主人、来源和版本，不能直接当作已确认事实。",
+      "f10": "async=true 表示后台处理。success=true 和 items_count 仅表示受理成功及提交条目数，不表示事实提取完成。",
+      "f11": "每条写入内容包含来源正文 content、可选上下文 context 和 ISO 8601 时间 timestamp；示例时间为虚构值，实际应使用来源事件时间。",
+      "f12": "replace 会覆盖并重新处理 document_id 对应文档；保持业务服务现有更新规则和文档标识规则。",
+      "f13": "异步 memories 接口返回 batch_retain 父操作。使用该 operation_id 查询；operation_type 是操作类型，不是完成状态。"
+    }
   }
 }

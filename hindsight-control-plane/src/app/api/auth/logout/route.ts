@@ -3,7 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { ACCESS_KEY_COOKIE, sessionCookieOptions } from "@/lib/auth/session";
 
 export async function POST(request: NextRequest) {
-  const response = NextResponse.json({ success: true });
+  const response = NextResponse.json(
+    { success: true },
+    { headers: { "Cache-Control": "private, no-store" } }
+  );
 
   response.cookies.set({
     name: ACCESS_KEY_COOKIE,

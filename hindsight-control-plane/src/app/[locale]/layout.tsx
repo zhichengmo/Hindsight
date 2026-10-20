@@ -3,10 +3,14 @@ import { NextIntlClientProvider, hasLocale } from "next-intl";
 import { setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { routing } from "@/i18n/routing";
-import { BankProvider } from "@/lib/bank-context";
-import { FeaturesProvider } from "@/lib/features-context";
+import { ControlPlaneProviders } from "@/components/control-plane-providers";
 import { ThemeProvider } from "@/lib/theme-context";
 import { Toaster } from "@/components/ui/sonner";
+import { getControlPlaneAuth } from "@/lib/auth/config";
+
+// Containers receive authentication settings at runtime; never prerender the
+// header with build-time authentication defaults.
+export const dynamic = "force-dynamic";
 
 // Inter preloaded server-side so every weight (400/500/600/700) is ready
 // before paint. The Google Fonts @import this replaces loaded weights lazily,
@@ -68,11 +72,11 @@ export default async function LocaleLayout({
       <body className="bg-background text-foreground">
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <ThemeProvider>
-          <FeaturesProvider>
-            <BankProvider>
-              <NextIntlClientProvider>{children}</NextIntlClientProvider>
-            </BankProvider>
-          </FeaturesProvider>
+          <NextIntlClientProvider>
+            <ControlPlaneProviders authEnabled={getControlPlaneAuth().mode !== "disabled"}>
+              {children}
+            </ControlPlaneProviders>
+          </NextIntlClientProvider>
         </ThemeProvider>
         <Toaster />
       </body>

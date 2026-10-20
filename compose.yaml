@@ -1,0 +1,52 @@
+services:
+  hindsight:
+    image: hindsight:local
+    # Override with HINDSIGHT_DOCKER_PLATFORM=linux/arm64 for Apple Silicon/ARM servers.
+    platform: ${HINDSIGHT_DOCKER_PLATFORM:-linux/amd64}
+    build:
+      context: .
+      dockerfile: docker/standalone/Dockerfile
+      target: standalone
+      args:
+        NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
+    env_file:
+      - .env
+    environment:
+      # Keep container ports fixed even when .env configures different host ports.
+      HINDSIGHT_API_HOST: 0.0.0.0
+      HINDSIGHT_API_PORT: "8888"
+      HINDSIGHT_CP_HOSTNAME: 0.0.0.0
+      HINDSIGHT_CP_PORT: "9999"
+      HINDSIGHT_CP_DATAPLANE_API_URL: http://127.0.0.1:8888
+      # This deployment must never fall back to an unprotected control plane.
+      HINDSIGHT_CP_USERNAME: ${HINDSIGHT_CP_USERNAME:?Set HINDSIGHT_CP_USERNAME in .env}
+      HINDSIGHT_CP_PASSWORD: ${HINDSIGHT_CP_PASSWORD:?Set HINDSIGHT_CP_PASSWORD in .env}
+      HINDSIGHT_ENABLE_API: "true"
+      HINDSIGHT_ENABLE_CP: "true"
+      # A stable worker ID lets recreated containers recover unfinished tasks.
+      HINDSIGHT_API_WORKER_ID: ${HINDSIGHT_API_WORKER_ID:-hindsight}
+    ports:
+      - "${HINDSIGHT_API_PORT:-8888}:8888"
+      - "${HINDSIGHT_CP_PORT:-9999}:9999"
+    volumes:
+      - hindsight-data:/home/hindsight/.pg0
+    shm_size: 1gb
+    init: true
+    restart: unless-stopped
+    # The shared entrypoint allows up to 30 seconds to stop the API and pg0.
+    stop_grace_period: 45s
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -m
+        - hindsight_api.http_probe
+        - http://127.0.0.1:8888/health
+        - "5"
+      interval: 30s
+      timeout: 10s
+      start_period: 5m
+      retries: 3
+
+volumes:
+  hindsight-data:

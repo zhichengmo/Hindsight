@@ -35,6 +35,29 @@ describe("ControlPlaneClient error handling", () => {
     delete (globalThis as { window?: unknown }).window;
   });
 
+  it.each(["query", "export", "import", "upload"])(
+    "redirects %s to login only for a local session failure",
+    async (kind) => {
+      const file = new File(["archive"], "example.zip");
+      const call = () => kind === "query" ? client.getBankConfig("bank-a")
+        : kind === "export" ? client.exportDocuments("bank-a")
+        : kind === "import" ? client.importDocuments("bank-a", file)
+        : client.uploadFiles({ bank_id: "bank-a", files: [file] });
+      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { "X-Hindsight-Session-Required": "1" },
+      }));
+      await expect(call()).rejects.toMatchObject({ status: 401 });
+      expect(window.location.href).toBe("/login?returnTo=%2Fen%2Fdashboard");
+      expect(toast.error).not.toHaveBeenCalled();
+      expect(toast.warning).not.toHaveBeenCalled();
+
+      window.location.href = "";
+      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ error: "Invalid service key" }), { status: 401 }));
+      await expect(call()).rejects.toMatchObject({ status: 401 });
+      expect(window.location.href).toBe("");
+    }
+  );
+
   it("shows client-error details for 4xx validation failures", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(

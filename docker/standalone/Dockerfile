@@ -2,19 +2,18 @@
 # Supports building API-only, Control Plane-only, or both
 #
 # Build args:
-#   INCLUDE_API=true/false         - Include API (default: true)
-#   INCLUDE_CP=true/false          - Include Control Plane (default: true)
+#   Select standalone, api-only, or cp-only with --target.
 #   INCLUDE_LOCAL_MODELS=true/false - Include local ML models for embeddings/reranking (default: true)
 #                                     Set to false when using external providers (TEI, OpenAI, Cohere)
 #   PRELOAD_ML_MODELS=true/false   - Pre-download ML models during build (default: true)
 #                                     Only effective when INCLUDE_LOCAL_MODELS=true
 #
 # Examples:
-#   docker build -t hindsight .                                          # Both (standalone)
-#   docker build -t hindsight-api --build-arg INCLUDE_CP=false .         # API only
-#   docker build -t hindsight-cp --build-arg INCLUDE_API=false .         # Control Plane only
-#   docker build -t hindsight --build-arg PRELOAD_ML_MODELS=false .      # Skip ML model preload
-#   docker build -t hindsight --build-arg INCLUDE_LOCAL_MODELS=false .   # Skip local ML deps (for external providers)
+#   docker build -f docker/standalone/Dockerfile --target standalone -t hindsight .
+#   docker build -f docker/standalone/Dockerfile --target api-only -t hindsight-api .
+#   docker build -f docker/standalone/Dockerfile --target cp-only -t hindsight-cp .
+#   docker build -f docker/standalone/Dockerfile --build-arg PRELOAD_ML_MODELS=false -t hindsight .
+#   docker build -f docker/standalone/Dockerfile --build-arg INCLUDE_LOCAL_MODELS=false -t hindsight .
 
 ARG INCLUDE_API=true
 ARG INCLUDE_CP=true
@@ -131,7 +130,7 @@ ARG NEXT_PUBLIC_BASE_PATH=""
 
 # Build Control Plane - run next build first, then custom standalone copy
 # (The build:standalone script expects a specific path structure that differs in Docker)
-RUN npm exec -- next build
+RUN npm exec -- next build --webpack
 
 # Create standalone directory structure manually
 # Note: Must exclude node_modules from find to avoid wrong server.js from next/dist/experimental/testmode/
@@ -436,12 +435,11 @@ ENV TOKENIZERS_PARALLELISM=false
 CMD ["/app/start-all.sh"]
 
 # =============================================================================
-# Default target selection based on build args
+# Default target aliases
 # =============================================================================
 FROM standalone AS default-both
 FROM api-only AS default-api
 FROM cp-only AS default-cp
 
-# This selects the final stage based on INCLUDE_API and INCLUDE_CP
-# Use --target to override: docker build --target api-only .
+# The default image includes both services; use --target to build a single service.
 FROM standalone

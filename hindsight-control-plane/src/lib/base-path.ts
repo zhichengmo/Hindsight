@@ -47,10 +47,16 @@ export function sanitizeReturnTo(
   // eslint-disable-next-line no-control-regex
   const trimmed = rawValue.replace(/^[\x00-\x20]+/, "");
   if (!trimmed.startsWith("/")) return fallback;
-  if (trimmed.startsWith("//") || trimmed.startsWith("/\\") || ABSOLUTE_URL_PATTERN.test(trimmed)) {
+  // Browsers remove embedded TAB/CR/LF while parsing a URL. Reject controls
+  // and backslashes before they can turn an apparently local path into //host.
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x1f\x7f\\]/.test(trimmed)) return fallback;
+  const path = stripBasePath(trimmed);
+  // Stripping a base path can itself expose //host, so validate the final path.
+  if (!path.startsWith("/") || path.startsWith("//") || ABSOLUTE_URL_PATTERN.test(path)) {
     return fallback;
   }
-  return stripBasePath(trimmed);
+  return path;
 }
 
 export function stripBasePath(path: string): string {

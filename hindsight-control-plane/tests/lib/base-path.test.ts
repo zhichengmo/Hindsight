@@ -1,4 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
+import { middleware } from "@/middleware";
+
+// These tests exercise the auth branch before locale rewriting. next-intl's
+// external ESM import of next/server is resolved by Next in production.
+vi.mock("next-intl/middleware", () => ({ default: () => () => new Response(null) }));
 
 import { normalizeBasePath, sanitizeReturnTo, stripBasePath, withBasePath } from "@/lib/base-path";
 
@@ -80,6 +86,16 @@ describe("base path helpers", () => {
     it("honors a custom fallback", () => {
       expect(sanitizeReturnTo("//evil.com", "/home")).toBe("/home");
     });
+
+    it.each(["/\t/evil.com", "/\r/evil.com", "/\n/evil.com", "/path\\evil.com"])(
+      "rejects browser-normalized redirect payload %j",
+      (path) => expect(sanitizeReturnTo(path)).toBe("/dashboard")
+    );
+
+    it("rejects an external path exposed by stripping the base path", () => {
+      vi.stubEnv("NEXT_PUBLIC_BASE_PATH", "/ai-memory");
+      expect(sanitizeReturnTo("/ai-memory//evil.com")).toBe("/dashboard");
+    });
   });
 
   it("leaves absolute URLs unchanged", () => {
@@ -90,4 +106,30 @@ describe("base path helpers", () => {
       "https://example.com/ai-memory/login"
     );
   });
+});
+
+describe("middleware route protection", () => {
+  it("does not strip an API-like base path twice", async () => {
+    vi.stubEnv("HINDSIGHT_CP_USERNAME", "admin");
+    vi.stubEnv("HINDSIGHT_CP_PASSWORD", "test-password");
+    vi.stubEnv("NEXT_PUBLIC_BASE_PATH", "/api");
+    const request = new NextRequest("http://localhost/api/api/banks", {
+      nextConfig: { basePath: "/api" },
+    });
+    expect(request.nextUrl.pathname).toBe("/api/banks");
+    const response = await middleware(request);
+    expect(response.status).toBe(401);
+    expect(response.headers.get("x-hindsight-session-required")).toBe("1");
+  });
+
+  it.each(["/banks/example.json", "/zh-CN/banks/example.js", "/api/api-access/key"])(
+    "protects %s without a session",
+    async (path) => {
+      vi.stubEnv("HINDSIGHT_CP_USERNAME", "admin");
+      vi.stubEnv("HINDSIGHT_CP_PASSWORD", "test-password");
+      const response = await middleware(new NextRequest(`http://localhost${path}`));
+      expect(response.status).toBe(path.startsWith("/api/") ? 401 : 307);
+      expect(response.headers.get("cache-control")).toContain("no-store");
+    }
+  );
 });

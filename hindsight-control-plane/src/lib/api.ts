@@ -362,6 +362,21 @@ export interface BankTemplateImportResponse {
 }
 
 export class ControlPlaneClient {
+  private redirectIfSessionRequired(response: Response): void {
+    // Apply the same session boundary to JSON, binary and multipart requests.
+    // A dataplane 401 has no marker and must remain an ordinary API error.
+    if (
+      response.status !== 401 ||
+      response.headers.get("x-hindsight-session-required") !== "1" ||
+      typeof window === "undefined"
+    )
+      return;
+    const currentPath = stripBasePath(`${window.location.pathname}${window.location.search}`);
+    if (currentPath === "/login" || currentPath.startsWith("/login?")) return;
+    window.location.href = withBasePath(`/login?returnTo=${encodeURIComponent(currentPath)}`);
+    throw Object.assign(new Error("Unauthorized"), { status: 401 });
+  }
+
   private async fetchApi<T>(
     path: string,
     options?: RequestInit,
@@ -380,12 +395,7 @@ export class ControlPlaneClient {
 
       if (!response.ok) {
         const isClientError = response.status >= 400 && response.status < 500;
-        // Redirect to login on 401 (session expired or not authenticated)
-        const currentPath = stripBasePath(`${window.location.pathname}${window.location.search}`);
-        if (response.status === 401 && !currentPath.startsWith("/login")) {
-          window.location.href = withBasePath(`/login?returnTo=${encodeURIComponent(currentPath)}`);
-          throw new Error("Unauthorized");
-        }
+        this.redirectIfSessionRequired(response);
 
         // Try to parse error response
         let errorMessage = `HTTP ${response.status}`;
@@ -1930,6 +1940,7 @@ export class ControlPlaneClient {
     // Direct fetch (not fetchApi) because the response is a binary zip, not JSON.
     const response = await fetch(withBasePath(`/api/documents/transfer?${params.toString()}`));
     if (!response.ok) {
+      this.redirectIfSessionRequired(response);
       let errorMessage = `HTTP ${response.status}`;
       try {
         const errorData = await response.json();
@@ -1963,6 +1974,7 @@ export class ControlPlaneClient {
       body: formData,
     });
     if (!response.ok) {
+      this.redirectIfSessionRequired(response);
       let errorMessage = `HTTP ${response.status}`;
       try {
         const errorData = await response.json();
@@ -2021,6 +2033,7 @@ export class ControlPlaneClient {
     });
 
     if (!response.ok) {
+      this.redirectIfSessionRequired(response);
       let errorMessage = `HTTP ${response.status}`;
       try {
         const errorData = await response.json();

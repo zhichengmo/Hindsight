@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { NextRequest } from "next/server";
+import { NextRequest } from "next/server";
+import { getControlPlaneAuth } from "@/lib/auth/config";
+import { GET as accessMetadata } from "@/app/api/api-access/route";
+import { POST as revealKey } from "@/app/api/api-access/key/route";
+import { POST as login } from "@/app/api/auth/login/route";
+import { POST as logout } from "@/app/api/auth/logout/route";
 
 import {
   SESSION_MAX_AGE_SECONDS,
@@ -9,6 +14,77 @@ import {
 } from "@/lib/auth/session";
 
 const ACCESS_KEY = "super-secret-access-key";
+
+describe("account login and API credential boundary", () => {
+  const username = "test-admin";
+  const password = "test-password";
+  const serviceKey = "test-service-api-key";
+  beforeEach(() => {
+    vi.stubEnv("HINDSIGHT_CP_USERNAME", username);
+    vi.stubEnv("HINDSIGHT_CP_PASSWORD", password);
+    vi.stubEnv("HINDSIGHT_CP_ACCESS_KEY", "legacy-test-key");
+    vi.stubEnv("HINDSIGHT_CP_DATAPLANE_API_KEY", serviceKey);
+    vi.stubEnv("HINDSIGHT_CP_PUBLIC_API_URL", "https://memory.example/api");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  async function sessionRequest() {
+    const response = await login(new NextRequest("http://localhost/api/auth/login", {
+      method: "POST", body: JSON.stringify({ username, password }),
+    }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(response.headers.get("set-cookie")).toContain("HttpOnly");
+    return new NextRequest("http://localhost/api/api-access/key", {
+      method: "POST", headers: { Cookie: response.headers.get("set-cookie")!.split(";")[0] },
+    });
+  }
+
+  it("keeps metadata secret-free and requires an explicit authenticated key request", async () => {
+    expect((await revealKey(new NextRequest("http://localhost/api/api-access/key"))).status).toBe(401);
+    const request = await sessionRequest();
+    const metadata = await accessMetadata(request);
+    expect(await metadata.json()).toEqual({ apiBaseUrl: "https://memory.example/api", docsUrl: "https://memory.example/api/docs", apiUrlStatus: "configured", apiKeyConfigured: true });
+    const response = await revealKey(request);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(await response.json()).toEqual({ apiKey: serviceKey });
+    const signedOut = await logout(request);
+    expect(signedOut.headers.get("set-cookie")).toContain("Max-Age=0");
+    const denied = await revealKey(new NextRequest(request.url));
+    expect(denied.status).toBe(401);
+  });
+
+  it.each(["HINDSIGHT_CP_USERNAME", "HINDSIGHT_CP_PASSWORD"])("invalidates sessions after rotating %s", async (key) => {
+    const request = await sessionRequest();
+    vi.stubEnv(key, "rotated-value");
+    expect((await revealKey(request)).status).toBe(401);
+  });
+
+  it.each(["disabled", "legacy", "partial"])("refuses key disclosure with %s auth configuration", async (mode) => {
+    const request = await sessionRequest();
+    vi.stubEnv("HINDSIGHT_CP_USERNAME", undefined);
+    vi.stubEnv("HINDSIGHT_CP_PASSWORD", mode === "partial" ? password : undefined);
+    vi.stubEnv("HINDSIGHT_CP_ACCESS_KEY", mode === "legacy" ? "legacy-test-key" : undefined);
+    expect(getControlPlaneAuth().mode).toBe(mode === "disabled" ? "disabled" : mode === "legacy" ? "access-key" : "misconfigured");
+    expect((await revealKey(request)).status).toBe(503);
+  });
+
+  it("rejects incorrect credentials and legacy keys in account mode", async () => {
+    for (const body of [{ username, password: "wrong" }, { key: "legacy-test-key" }]) {
+      expect((await login(new NextRequest("http://localhost/api/auth/login", { method: "POST", body: JSON.stringify(body) }))).status).toBe(401);
+    }
+  });
+
+  it.each([undefined, "http://name:password@example.com", "https://example.com?key=secret", "https://example.com#secret"])("never substitutes the internal proxy for public URL %j", async (url) => {
+    vi.stubEnv("HINDSIGHT_CP_PUBLIC_API_URL", url);
+    vi.stubEnv("HINDSIGHT_CP_DATAPLANE_API_URL", "http://internal-api:8888");
+    const response = await accessMetadata(await sessionRequest());
+    const data = await response.json();
+    expect(data.apiBaseUrl).toBeNull();
+    expect(data.docsUrl).toBeNull();
+    expect(data.apiUrlStatus).toBe(url === undefined ? "missing" : "invalid");
+  });
+});
 
 function fakeRequest({
   protocol = "http:",

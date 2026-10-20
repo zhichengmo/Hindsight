@@ -44,6 +44,9 @@
     "matchAllTooltip": "Mit allen ausgewählten Tags übereinstimmen"
   },
   "nav": {
+    "apiAccess": "API-Zugriff",
+    "logout": "Abmelden",
+    "logoutFailed": "Abmeldung fehlgeschlagen. Bitte erneut versuchen.",
     "home": "Zur Startseite",
     "darkMode": "Zum Dunkelmodus wechseln",
     "lightMode": "Zum Hellmodus wechseln",
@@ -1750,15 +1753,25 @@
     "signIn": "Anmelden",
     "signingIn": "Anmeldung läuft...",
     "invalidKey": "Ungültiger Zugangsschlüssel",
-    "connectFailed": "Verbindung zum Server fehlgeschlagen"
+    "connectFailed": "Verbindung zum Server fehlgeschlagen",
+    "credentialsDescription": "Mit Benutzername und Passwort anmelden",
+    "username": "Benutzername",
+    "usernamePlaceholder": "Benutzername eingeben",
+    "password": "Passwort",
+    "passwordPlaceholder": "Passwort eingeben",
+    "invalidCredentials": "Benutzername oder Passwort ungültig"
   },
   "api": {
     "errors": {
       "auth": {
+        "accountLoginRequired": "Account login is required to access API credentials.",
+        "dataplaneKeyNotConfigured": "Dataplane API key is not configured.",
         "accessKeyNotConfigured": "Zugriffsschlüssel ist nicht konfiguriert",
         "invalidRequestBody": "Ungültiger Anfrageinhalt",
         "invalidAccessKey": "Ungültiger Zugriffsschlüssel",
-        "unauthorized": "Nicht autorisiert"
+        "unauthorized": "Nicht autorisiert",
+        "invalidCredentials": "Benutzername oder Passwort ungültig",
+        "loginNotConfigured": "Die Anmeldung am Kontrollbereich ist nicht konfiguriert"
       },
       "validation": {
         "bankIdRequired": "bank_id ist erforderlich",
@@ -2013,5 +2026,64 @@
     "staleAutoTitle": "Neue Erinnerungen im Bereich dieses Modells (wird automatisch aktualisiert)",
     "staleManualTitle": "Neue Erinnerungen vorhanden (manuell aktualisieren zum Abgleichen)",
     "inSyncTitle": "Keine neuen Erinnerungen im Bereich dieses Modells vorhanden"
+  },
+  "apiAccess": {
+    "title": "API access",
+    "description": "Connect your application to the Hindsight data API using the existing service API Key. Console login credentials are separate.",
+    "back": "Back to dashboard",
+    "loading": "Loading connection settings…",
+    "loadFailed": "Unable to load API access settings.",
+    "connection": "Connection settings",
+    "apiBaseUrl": "Data API base URL",
+    "notConfigured": "Not configured",
+    "swagger": "Open Swagger API documentation",
+    "missingUrl": "Set HINDSIGHT_CP_PUBLIC_API_URL in the deployment environment and recreate the control plane. The container proxy URL is not an external API address.",
+    "invalidUrl": "HINDSIGHT_CP_PUBLIC_API_URL must be an HTTP(S) base URL without credentials, query parameters or a fragment.",
+    "show": "Show Key",
+    "hide": "Hide Key",
+    "copy": "Copy",
+    "copyKey": "Copy API Key",
+    "copied": "Copied",
+    "copyFailed": "Automatic copy is unavailable. Select the text and copy it manually.",
+    "missingKey": "Set HINDSIGHT_CP_DATAPLANE_API_KEY to the existing API service key. Do not use a model-provider key or the console password.",
+    "keyHelp": "This is the existing shared service API Key, not a newly generated key. Keep it on the server; it does not identify a pet or authorize an owner.",
+    "msPet": "ms-pet integration",
+    "msPetHelp": "ms-pet already calls Hindsight using these settings. ms-ai-fast obtains history through ms-pet. Preserve the existing key, ENV, Bank IDs and service-reachable API address; a public address may differ from the internal service address.",
+    "examplesTitle": "Native API examples",
+    "exampleHelp": "Illustrative requests and partial responses only, not live data. Replace the base URL, Key and example IDs. Sending write, recall or delete requests can incur work or change data; this page sends none of them.",
+    "asyncHelp": "Retain success=true with async=true only confirms acceptance. Poll the same operation_id until completed. not_found is an operation status returned with HTTP 200, not a completion. A timeout is not permission to blindly resend. Config writes may be disabled; an empty recall result is valid.",
+    "request": "Request",
+    "response": "Response example (selected fields)",
+    "fieldsTitle": "Field reference",
+    "field": "Field",
+    "meaning": "Meaning",
+    "deletionHelp": "Deletion confirmation requires document GET to return 404 and memories/list to return items=[] and total=0. A DELETE receipt alone does not confirm cleanup.",
+    "examples": {
+      "bank": "Ensure a Bank exists",
+      "configRead": "Read resolved configuration",
+      "configWrite": "Update Bank configuration",
+      "retain": "Submit asynchronous memory ingestion",
+      "operation": "Check operation status",
+      "recall": "Recall memory candidates",
+      "documentRead": "Read a source document",
+      "documentDelete": "Delete a document and its memories",
+      "verifyDelete": "Verify document memory cleanup"
+    },
+    "fields": {
+      "f0": "Memory Bank identifier, not the caller identity. Keep the existing service-generated value.",
+      "f1": "Stable UUID for asynchronous work. Use the same ID for receipt and status verification.",
+      "f2": "pending / processing / completed / failed / cancelled / not_found. Only completed confirms operation completion.",
+      "f3": "Source document identifier. replace overwrites and reprocesses that document; it is not an append-only write.",
+      "f4": "Source metadata; every value must be a string, not arbitrary nested JSON.",
+      "f5": "Recall candidates. Empty results are valid and do not prove a pet has no history.",
+      "f6": "Page items and the total matching count; total is not the current page length.",
+      "f7": "updates contains Bank fields to change. config contains the fully resolved effective values (only selected fields are shown here). overrides contains only values set on this Bank; inherited values can appear in config without appearing in overrides.",
+      "f8": "query is the search text; types selects fact categories; budget controls retrieval effort (low here); max_tokens caps the returned memory token budget, not the HTTP timeout.",
+      "f9": "Each recalled candidate has an id and text; type is its fact category. document_id and metadata link it to source evidence. Candidates still require the business service to verify ownership, source and version.",
+      "f10": "async=true requests background ingestion. success=true and items_count confirm acceptance and the number of submitted items, not completed extraction.",
+      "f11": "Each item supplies source content, optional context and an ISO 8601 timestamp. The example timestamp is illustrative; use the actual source event time.",
+      "f12": "replace replaces and reprocesses the document identified by document_id. Keep the business service’s existing update and document-ID rules.",
+      "f13": "The asynchronous memories endpoint returns a batch_retain parent operation. Poll that operation_id; do not confuse its type with completion status."
+    }
   }
 }

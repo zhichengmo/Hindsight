@@ -8,9 +8,9 @@ const CLOCK_SKEW_TOLERANCE_SECONDS = 60;
 /**
  * Session token format: `<issuedAtSeconds>.<base64urlHmacSha256>`.
  *
- * The HMAC is computed over `issuedAtSeconds` using the access key as the
- * secret, so the token cannot be forged without knowing the key, and rotating
- * the key invalidates every outstanding session. No server-side state needed.
+ * The HMAC uses the configured login secret (credentials or legacy access key),
+ * so rotating credentials invalidates outstanding sessions. No server-side
+ * state is needed, and browser sessions never contain dataplane API keys.
  */
 export async function createSessionToken(accessKey: string): Promise<string> {
   const issuedAt = Math.floor(Date.now() / 1000).toString();
